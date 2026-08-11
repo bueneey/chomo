@@ -45,12 +45,30 @@ open http://localhost:5173
 | `GET /api/wallet/chart` | pnl series |
 | `GET /api/feed/onchain` | recent txs |
 
+## deploy
+
+set these on your host (Railway / Render / etc) — no `.env` file needed in production:
+
+| var | required |
+| --- | --- |
+| `HELIUS_API_KEY` | yes |
+| `VITE_WALLET_ADDRESS` | yes |
+| `VITE_STARTING_BANKROLL` | no (default 100) |
+| `VITE_TOKEN_CA` / `VITE_FOMO_*` / `VITE_X_*` | no |
+
+`VITE_*` used by the UI must also be present at **build** time.
+
+```bash
+npm run build
+npm start
+```
+
 ## scripts
 
 ```bash
 npm run dev      # vite + /api middleware
 npm run build    # client build
-npm run start    # serve dist + api (prod)
+npm run start    # serve dist + api (uses process env, no .env file required)
 ```
 
 ## repo

@@ -37,7 +37,7 @@ function parseEnvFile(filePath: string): Record<string, string> {
 }
 
 function env(name: string, fallback = ''): string {
-  // Prefer live .env on disk so wallet/key edits apply without a full restart.
+  // Local .env overrides when present; otherwise use host/process env (Railway etc).
   const fileEnv = parseEnvFile(resolve(process.cwd(), '.env'))
   const value = fileEnv[name] ?? process.env[name] ?? fallback
   return String(value).trim()

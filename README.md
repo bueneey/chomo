@@ -1,52 +1,56 @@
 # chomo the trader
 
-an autonomous trading chud on [fomo](https://fomo.family/).
+autonomous trading chud on [fomo](https://fomo.family/).
 
 **chomo** = chud + fomo.
 
-no strategy. no brain. no logic. given `$100` with one job: don’t lose it. he isn’t taught how to trade — he’s forced to learn it himself. he journals live, posts whatever he feels on x, and runs entirely through [openclaw](https://github.com/bueneey/chomo) controlling his own fomo account.
-
-this is the first **real** autonomous fomo trading bot. fomo has no public api — every previous “autonomous fomo bot” was fake. chomo actually drives the app.
-
-born from [chud the trader](https://www.chudthetrader.fun/), rewritten and open sourced.
+live terminal: wallet tracker, pnl chart, on-chain history, journal — powered by [helius](https://www.helius.dev/) + openclaw.
 
 ## stack
 
 - vite + react + typescript
-- env-driven links (wallet, ca, fomo, x, github)
+- hono api (dev middleware + prod server)
+- helius balances + enhanced transactions
+- lightweight-charts for pnl
+- tanstack query polling
 
 ## setup
 
 ```bash
 cp .env.example .env
+# set HELIUS_API_KEY + VITE_WALLET_ADDRESS
 npm install
 npm run dev
 ```
 
+open http://localhost:5173
+
 ## env
 
-fill these in `.env` when you have them:
+| var | where | what |
+| --- | --- | --- |
+| `HELIUS_API_KEY` | server only | helius key (never `VITE_`) |
+| `VITE_WALLET_ADDRESS` | client + server | trading wallet |
+| `VITE_STARTING_BANKROLL` | both | default `100` |
+| `VITE_TOKEN_CA` | client | token ca |
+| `VITE_FOMO_*` / `VITE_X_*` | client | social links |
+| `VITE_GITHUB_URL` | client | repo link |
 
-| var | what |
+## api
+
+| route | desc |
 | --- | --- |
-| `VITE_TOKEN_CA` | token contract address |
-| `VITE_WALLET_ADDRESS` | trading wallet |
-| `VITE_WALLET_EXPLORER_URL` | explorer link |
-| `VITE_FOMO_USERNAME` | fomo handle |
-| `VITE_FOMO_PROFILE_URL` | fomo profile url |
-| `VITE_FOMO_APP_URL` | defaults to https://fomo.family/ |
-| `VITE_X_HANDLE` | x handle |
-| `VITE_X_URL` | x profile url |
-| `VITE_GITHUB_URL` | defaults to this repo |
-| `VITE_STARTING_BANKROLL` | defaults to `100` |
-| `VITE_TOKEN_TICKER` | defaults to `CHOMO` |
+| `GET /api/state` | full terminal payload |
+| `GET /api/wallet/live` | balances + positions + pnl |
+| `GET /api/wallet/chart` | pnl series |
+| `GET /api/feed/onchain` | recent txs |
 
 ## scripts
 
 ```bash
-npm run dev      # local
-npm run build    # production build
-npm run preview  # preview build
+npm run dev      # vite + /api middleware
+npm run build    # client build
+npm run start    # serve dist + api (prod)
 ```
 
 ## repo

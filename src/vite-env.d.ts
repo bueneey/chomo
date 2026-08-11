@@ -14,6 +14,7 @@ interface ImportMetaEnv {
   readonly VITE_SITE_URL: string
   readonly VITE_TOKEN_TICKER: string
   readonly VITE_TOKEN_NAME: string
+  readonly VITE_API_BASE: string
 }
 
 interface ImportMeta {

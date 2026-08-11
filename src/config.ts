@@ -18,14 +18,15 @@ export const config = {
   xHandle: env('VITE_X_HANDLE'),
   xUrl: env('VITE_X_URL'),
   githubUrl: env('VITE_GITHUB_URL', 'https://github.com/bueneey/chomo'),
-  startingBankroll: env('VITE_STARTING_BANKROLL', '100'),
+  startingBankroll: Number(env('VITE_STARTING_BANKROLL', '100')) || 100,
   siteUrl: env('VITE_SITE_URL'),
   tokenTicker: env('VITE_TOKEN_TICKER', 'CHOMO'),
   tokenName: env('VITE_TOKEN_NAME', 'Chomo the Trader'),
+  apiBase: env('VITE_API_BASE', '/api'),
 }
 
-export function displayWallet(): string {
-  return config.walletAddress ? shortAddress(config.walletAddress) : 'coming soon'
+export function displayWallet(address = config.walletAddress): string {
+  return address ? shortAddress(address) : 'not set'
 }
 
 export function displayCa(): string {
@@ -43,6 +44,45 @@ export function displayFomo(): string {
   return config.fomoUsername ? `@${config.fomoUsername.replace(/^@/, '')}` : 'coming soon'
 }
 
-export function hasLink(url: string | undefined): url is string {
+export function hasLink(url?: string): url is string {
   return Boolean(url && url.length > 0)
+}
+
+export function explorerWallet(address?: string): string {
+  if (config.walletExplorerUrl) return config.walletExplorerUrl
+  if (address) return `https://solscan.io/account/${address}`
+  return ''
+}
+
+export function formatUsd(n: number, digits = 2): string {
+  const sign = n < 0 ? '-' : ''
+  return `${sign}$${Math.abs(n).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`
+}
+
+export function formatSol(n: number, digits = 4): string {
+  return `${n.toLocaleString(undefined, {
+    minimumFractionDigits: Math.min(2, digits),
+    maximumFractionDigits: digits,
+  })} SOL`
+}
+
+export function formatPnl(n: number): string {
+  const sign = n > 0 ? '+' : n < 0 ? '' : ''
+  return `${sign}${formatUsd(n)}`
+}
+
+export function timeAgo(ts: number | string): string {
+  const t = typeof ts === 'string' ? Date.parse(ts) : ts
+  const diff = Math.max(0, Date.now() - t)
+  const s = Math.floor(diff / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 48) return `${h}h`
+  const d = Math.floor(h / 24)
+  return `${d}d`
 }

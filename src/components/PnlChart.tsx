@@ -24,33 +24,31 @@ export function PnlChart({ points }: { points: ChartPoint[] }) {
       autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#5a6358',
-        fontFamily: 'IBM Plex Sans, sans-serif',
+        textColor: '#9aa1b2',
+        fontFamily: 'Outfit, sans-serif',
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: 'rgba(20, 24, 20, 0.06)' },
-        horzLines: { color: 'rgba(20, 24, 20, 0.06)' },
+        vertLines: { color: 'rgba(255,255,255,0.04)' },
+        horzLines: { color: 'rgba(255,255,255,0.04)' },
       },
-      rightPriceScale: {
-        borderColor: 'rgba(20, 24, 20, 0.12)',
-      },
+      rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
       timeScale: {
-        borderColor: 'rgba(20, 24, 20, 0.12)',
+        borderColor: 'rgba(255,255,255,0.08)',
         timeVisible: true,
         secondsVisible: false,
       },
       crosshair: {
-        vertLine: { color: 'rgba(26, 33, 84, 0.25)' },
-        horzLine: { color: 'rgba(26, 33, 84, 0.25)' },
+        vertLine: { color: 'rgba(255,255,255,0.18)' },
+        horzLine: { color: 'rgba(255,255,255,0.18)' },
       },
     })
 
     const up = polarity >= 0
     const series = chart.addSeries(AreaSeries, {
-      lineColor: up ? '#3d6b3d' : '#a84848',
-      topColor: up ? 'rgba(61,107,61,0.22)' : 'rgba(168,72,72,0.22)',
-      bottomColor: 'rgba(255,255,255,0)',
+      lineColor: up ? '#3dff8a' : '#ff5c6a',
+      topColor: up ? 'rgba(61,255,138,0.22)' : 'rgba(255,92,106,0.22)',
+      bottomColor: 'rgba(0,0,0,0)',
       lineWidth: 2,
       priceLineVisible: false,
     })

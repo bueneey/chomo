@@ -11,7 +11,8 @@ api.get('/state', async (c) => {
     return c.json(state)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'state failed'
-    return c.json({ error: message }, 500)
+    const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined
+    return c.json({ error: message, cause }, 500)
   }
 })
 
@@ -22,7 +23,8 @@ api.get('/wallet/live', async (c) => {
     return c.json(wallet)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'wallet live failed'
-    return c.json({ error: message }, 500)
+    const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined
+    return c.json({ error: message, cause }, 500)
   }
 })
 
@@ -31,7 +33,8 @@ api.get('/wallet/chart', async (c) => {
     return c.json(await getChart())
   } catch (err) {
     const message = err instanceof Error ? err.message : 'chart failed'
-    return c.json({ error: message }, 500)
+    const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined
+    return c.json({ error: message, cause }, 500)
   }
 })
 
@@ -41,6 +44,7 @@ api.get('/feed/onchain', async (c) => {
     return c.json(await getFeed(Math.min(100, Math.max(1, limit))))
   } catch (err) {
     const message = err instanceof Error ? err.message : 'feed failed'
-    return c.json({ error: message }, 500)
+    const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined
+    return c.json({ error: message, cause }, 500)
   }
 })

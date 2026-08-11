@@ -1,3 +1,5 @@
+import { readFileSync, existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type {
   AgentEvent,
   ChartPoint,
@@ -13,8 +15,32 @@ const HELIUS_RPC = (key: string) => `https://mainnet.helius-rpc.com/?api-key=${k
 const HELIUS_API = (path: string, key: string) =>
   `https://api.helius.xyz${path}${path.includes('?') ? '&' : '?'}api-key=${key}`
 
+function parseEnvFile(filePath: string): Record<string, string> {
+  if (!existsSync(filePath)) return {}
+  const out: Record<string, string> = {}
+  for (const raw of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const eq = line.indexOf('=')
+    if (eq <= 0) continue
+    const key = line.slice(0, eq).trim()
+    let value = line.slice(eq + 1).trim()
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1)
+    }
+    out[key] = value
+  }
+  return out
+}
+
 function env(name: string, fallback = ''): string {
-  return (process.env[name] ?? fallback).trim()
+  // Prefer live .env on disk so wallet/key edits apply without a full restart.
+  const fileEnv = parseEnvFile(resolve(process.cwd(), '.env'))
+  const value = fileEnv[name] ?? process.env[name] ?? fallback
+  return String(value).trim()
 }
 
 export function getConfig() {

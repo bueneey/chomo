@@ -16,11 +16,11 @@ import {
 } from '../config'
 import { CHOMO_LOGS } from '../logs'
 import type { AgentEvent, Position } from '../types'
-import { PnlChart } from './PnlChart'
+import { PnlChart, type ChartRange } from './PnlChart'
 import { TradeFeed } from './TradeFeed'
 
 const NAV = [
-  { to: '/', label: 'live' },
+  { to: '/', label: 'home' },
   { to: '/feed', label: 'feed' },
   { to: '/journal', label: 'journal' },
 ] as const
@@ -30,7 +30,7 @@ function StatusPill({ status }: { status?: string }) {
     return (
       <div className="live-pill">
         <span className="live-dot" />
-        live
+        live on fomo
       </div>
     )
   }
@@ -98,11 +98,15 @@ function Fold({
 
 function HomePage() {
   const { data, isLoading, error } = useChomoState()
+  const [range, setRange] = useState<ChartRange>('7d')
   const wallet = data?.wallet
   const vsBag = wallet ? wallet.equityUsd - (data?.startingBankrollUsd ?? config.startingBankroll) : 0
   const recent = (data?.feed ?? []).slice(0, 8)
   const thoughts = (data?.events ?? [])
-    .filter((e: AgentEvent) => e.kind === 'thought' || e.kind === 'journal' || e.kind === 'trade' || e.kind === 'did')
+    .filter(
+      (e: AgentEvent) =>
+        e.kind === 'thought' || e.kind === 'journal' || e.kind === 'trade' || e.kind === 'did',
+    )
     .slice(0, 12)
   const [nowLine, setNowLine] = useState(
     () => thoughts[0]?.text ?? CHOMO_LOGS[Math.floor(Math.random() * CHOMO_LOGS.length)]!,
@@ -129,172 +133,144 @@ function HomePage() {
         </section>
       ) : null}
 
-      <div className="kpi-strip">
-        <div className="kpi">
-          <span>balance</span>
-          <strong>{wallet ? formatUsd(wallet.equityUsd) : isLoading ? '…' : '—'}</strong>
+      <section className="hero-balance">
+        <div className="hero-balance-copy">
+          <p className="eyebrow">wallet balance</p>
+          <h2 className="hero-balance-value">
+            {wallet ? formatUsd(wallet.equityUsd) : isLoading ? '…' : '—'}
+          </h2>
+          <p className="hero-balance-sub">
+            {wallet
+              ? `${formatSol(wallet.balanceSol, 3)} cash · ${formatUsd(wallet.tokenValueUsd)} in tokens · ${formatPnl(vsBag)} vs $${config.startingBankroll} bag`
+              : `starting bag $${config.startingBankroll}`}
+          </p>
         </div>
-        <div className="kpi">
-          <span>sol</span>
-          <strong>{wallet ? formatSol(wallet.balanceSol, 3) : isLoading ? '…' : '—'}</strong>
-        </div>
-        <div className="kpi">
-          <span>tokens</span>
-          <strong>{wallet ? formatUsd(wallet.tokenValueUsd) : isLoading ? '…' : '—'}</strong>
-        </div>
-        <div className="kpi">
-          <span>vs bag</span>
-          <strong className={vsBag > 0 ? 'up' : vsBag < 0 ? 'down' : ''}>
-            {wallet ? formatPnl(vsBag) : isLoading ? '…' : '—'}
-          </strong>
-        </div>
-      </div>
-
-      <div className="dense-grid">
-        <div className="dense-col">
-          <section className="panel panel-tight">
-            <div className="panel-head">
-              <div className="panel-title">wallet balance</div>
-              <span className="muted">live · hover for details</span>
-            </div>
-            <PnlChart points={data?.chart.points ?? []} />
-          </section>
-
-          <section className="panel panel-tight">
-            <div className="panel-head">
-              <div className="panel-title">book</div>
-              <span className="muted">wallet: {displayWallet(wallet?.address)}</span>
-            </div>
-            <div className="book-mini">
-              <div>
-                <span>cash</span>
-                <strong>{wallet ? formatUsd(wallet.balanceUsd) : '—'}</strong>
-              </div>
-              <div>
-                <span>tokens</span>
-                <strong>{wallet ? formatUsd(wallet.tokenValueUsd) : '—'}</strong>
-              </div>
-              <div>
-                <span>balance</span>
-                <strong>{wallet ? formatUsd(wallet.equityUsd) : '—'}</strong>
-              </div>
-              <div>
-                <span>sol</span>
-                <strong>{wallet ? formatSol(wallet.balanceSol, 4) : '—'}</strong>
-              </div>
-            </div>
-          </section>
-
-          <Fold title="holdings" meta={`${wallet?.positions.length ?? 0}`} defaultOpen>
-            {!wallet?.positions.length ? (
-              <p className="empty">cash sitting in sol</p>
-            ) : (
-              <div className="scroll-pane">
-                {wallet.positions.map((p: Position) => (
-                  <div className="pos-row" key={p.mint}>
-                    {p.logo ? (
-                      <img className="token-logo" src={p.logo} alt="" />
-                    ) : (
-                      <div className="token-logo fallback">{p.symbol.slice(0, 2)}</div>
-                    )}
-                    <div className="pos-main">
-                      <strong>{p.symbol}</strong>
-                      <span>
-                        {p.amount.toPrecision(4)} · {formatUsd(p.priceUsd, 6)}
-                      </span>
-                    </div>
-                    <div className="pos-val">
-                      <strong>{formatUsd(p.usdValue)}</strong>
-                      <a
-                        href={`https://dexscreener.com/solana/${p.mint}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        chart ↗
-                      </a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Fold>
-        </div>
-
-        <div className="dense-col">
-          <section className="panel panel-tight">
-            <div className="panel-head">
-              <div className="panel-title">now / tape</div>
-              <span className="muted">{data ? timeAgo(data.updatedAt) : '…'}</span>
-            </div>
-            <p className="now-line">{nowLine}</p>
-            <div className="scroll-pane scroll-pane-sm">
-              {!thoughts.length ? (
-                <p className="empty">openclaw will write here</p>
-              ) : (
-                thoughts.map((ev: AgentEvent) => (
-                  <div className="event-row" key={ev.id}>
-                    <div className={`event-kind ${ev.kind}`}>{ev.kind}</div>
-                    <div>
-                      <div>{ev.text}</div>
-                      <div className="event-time">{timeAgo(ev.at)}</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          <Fold title="recent trades" meta={`${recent.length}`} defaultOpen>
-            <div className="fold-link">
-              <Link to="/feed">full feed →</Link>
-            </div>
-            {!recent.length ? (
-              <p className="empty">no txs yet</p>
-            ) : (
-              <div className="scroll-pane">
-                <TradeFeed items={recent} compact />
-              </div>
-            )}
-          </Fold>
-
-          <Fold
-            title="damage report"
-            meta={wallet ? (vsBag >= 0 ? 'intact' : 'bleeding') : '—'}
+        <div className="hero-balance-actions">
+          <CopyBtn value={wallet?.address || config.walletAddress} label="copy wallet" />
+          <a
+            className="btn solid"
+            href={config.fomoProfileUrl || config.fomoAppUrl}
+            target="_blank"
+            rel="noreferrer"
           >
-            <div className={`damage-big ${vsBag > 0 ? 'up' : vsBag < 0 ? 'down' : ''}`}>
-              {wallet ? (vsBag >= 0 ? 'bag intact.' : 'bleeding.') : 'awaiting funds.'}
-            </div>
-            <p className="about-text">
-              starting <strong>${config.startingBankroll}</strong>
-              {wallet ? (
-                <>
-                  . wallet balance <strong>{formatUsd(wallet.equityUsd)}</strong>. don’t lose it.
-                </>
-              ) : null}
-            </p>
-          </Fold>
-
-          <Fold title="about chomo">
-            <p className="about-text">
-              <strong>chomo</strong> = chud + fomo. no strategy. no brain. ${config.startingBankroll}{' '}
-              bag. forced to learn on fomo via openclaw — first real autonomous fomo bot (no public
-              api). from chud the trader, improved, open source.
-            </p>
-            <div className="inline-actions">
-              <CopyBtn value={wallet?.address || config.walletAddress} label="copy wallet" />
-              <CopyBtn value={config.tokenCa} label="copy ca" />
-              <a
-                className="btn solid"
-                href={config.fomoProfileUrl || config.fomoAppUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                watch on fomo
-              </a>
-            </div>
-          </Fold>
+            watch on fomo
+          </a>
         </div>
+      </section>
+
+      <section className="panel chart-panel">
+        <div className="panel-head chart-panel-head">
+          <div>
+            <div className="panel-title">balance over time</div>
+            <p className="muted tiny">hover for exact value · locked chart</p>
+          </div>
+          <span className="muted">wallet: {displayWallet(wallet?.address)}</span>
+        </div>
+        <PnlChart points={data?.chart.points ?? []} range={range} onRangeChange={setRange} />
+      </section>
+
+      <div className="story-grid">
+        <section className="panel">
+          <div className="panel-title">chomo says</div>
+          <p className="now-line">{nowLine}</p>
+          <div className="scroll-pane scroll-pane-sm">
+            {!thoughts.length ? (
+              <p className="empty">openclaw will write here</p>
+            ) : (
+              thoughts.map((ev: AgentEvent) => (
+                <div className="event-row" key={ev.id}>
+                  <div className={`event-kind ${ev.kind}`}>{ev.kind}</div>
+                  <div>
+                    <div>{ev.text}</div>
+                    <div className="event-time">{timeAgo(ev.at)}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <div className="panel-title">holdings</div>
+            <span className="muted">{wallet?.positions.length ?? 0}</span>
+          </div>
+          {!wallet?.positions.length ? (
+            <p className="empty">cash sitting in sol</p>
+          ) : (
+            <div className="scroll-pane">
+              {wallet.positions.map((p: Position) => (
+                <div className="pos-row" key={p.mint}>
+                  {p.logo ? (
+                    <img className="token-logo" src={p.logo} alt="" />
+                  ) : (
+                    <div className="token-logo fallback">{p.symbol.slice(0, 2)}</div>
+                  )}
+                  <div className="pos-main">
+                    <strong>{p.symbol}</strong>
+                    <span>
+                      {p.amount.toPrecision(4)} · {formatUsd(p.priceUsd, 6)}
+                    </span>
+                  </div>
+                  <div className="pos-val">
+                    <strong>{formatUsd(p.usdValue)}</strong>
+                    <a
+                      href={`https://dexscreener.com/solana/${p.mint}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      chart ↗
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
+
+      <Fold title="recent trades" meta={`${recent.length}`} defaultOpen>
+        <div className="fold-link">
+          <Link to="/feed">full feed →</Link>
+        </div>
+        {!recent.length ? (
+          <p className="empty">no txs yet</p>
+        ) : (
+          <div className="scroll-pane">
+            <TradeFeed items={recent} compact />
+          </div>
+        )}
+      </Fold>
+
+      <Fold title="damage report" meta={wallet ? (vsBag >= 0 ? 'intact' : 'bleeding') : '—'}>
+        <div className={`damage-big ${vsBag > 0 ? 'up' : vsBag < 0 ? 'down' : ''}`}>
+          {wallet ? (vsBag >= 0 ? 'bag intact.' : 'bleeding.') : 'awaiting funds.'}
+        </div>
+        <p className="about-text">
+          starting <strong>${config.startingBankroll}</strong>
+          {wallet ? (
+            <>
+              . wallet balance <strong>{formatUsd(wallet.equityUsd)}</strong>. don’t lose it.
+            </>
+          ) : null}
+        </p>
+      </Fold>
+
+      <Fold title="about chomo" defaultOpen={false}>
+        <p className="about-text">
+          <strong>chomo</strong> = chud + fomo. no strategy. no brain. ${config.startingBankroll} bag.
+          forced to learn on fomo via openclaw — first real autonomous fomo bot. from chud the
+          trader, improved, open source.
+        </p>
+        <div className="inline-actions">
+          <CopyBtn value={config.tokenCa} label="copy ca" />
+          {hasLink(config.xUrl) ? (
+            <a className="btn" href={config.xUrl} target="_blank" rel="noreferrer">
+              {displayX()}
+            </a>
+          ) : null}
+        </div>
+      </Fold>
     </>
   )
 }
@@ -311,7 +287,7 @@ function FeedPage() {
           wallet: {displayWallet(wallet)} · {isLoading ? 'loading…' : `${data?.feed.length ?? 0}`}
         </span>
       </div>
-      <section className="panel panel-tight">
+      <section className="panel">
         <div className="scroll-pane scroll-pane-lg">
           <TradeFeed items={data?.feed ?? []} />
         </div>
@@ -323,16 +299,18 @@ function FeedPage() {
 function JournalPage() {
   const { data } = useChomoState()
   const thoughts = useMemo(
-    () => (data?.events ?? []).filter((e: AgentEvent) => e.kind === 'thought' || e.kind === 'journal'),
+    () =>
+      (data?.events ?? []).filter((e: AgentEvent) => e.kind === 'thought' || e.kind === 'journal'),
     [data?.events],
   )
   const actions = useMemo(
-    () => (data?.events ?? []).filter((e: AgentEvent) => e.kind !== 'thought' && e.kind !== 'journal'),
+    () =>
+      (data?.events ?? []).filter((e: AgentEvent) => e.kind !== 'thought' && e.kind !== 'journal'),
     [data?.events],
   )
 
   return (
-    <div className="dense-grid">
+    <div className="story-grid">
       <Fold title="journal" meta={`${thoughts.length}`} defaultOpen>
         <div className="scroll-pane scroll-pane-lg">
           {!thoughts.length ? (
@@ -382,29 +360,27 @@ export function Terminal() {
     <div className="app-wrap">
       <div className="bg-waves" aria-hidden="true" />
       <div className="app">
-        <div className="top-row">
-          <div className="brand-row brand-row-compact">
-            <img src="/chomo-pfp.png" alt="chomo" width={44} height={44} />
+        <header className="site-bar">
+          <div className="brand-row">
+            <img src="/chomo-pfp.png" alt="chomo" width={52} height={52} />
             <div className="brand-copy">
               <h1>chomo</h1>
-              <p>autonomous fomo chud · don’t lose the $100</p>
+              <p>autonomous trading chud on fomo</p>
             </div>
           </div>
-          <div className="top-row-right">
-            <nav className="top-nav" aria-label="Primary">
-              {NAV.map((item) => (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  className={`top-nav-btn${location.pathname === item.to ? ' active' : ''}`}
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
-            <StatusPill status={data?.status} />
-          </div>
-        </div>
+          <nav className="text-nav" aria-label="Primary">
+            {NAV.map((item) => (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={`text-nav-link${location.pathname === item.to ? ' active' : ''}`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+          <StatusPill status={data?.status} />
+        </header>
 
         <Routes>
           <Route path="/" element={<HomePage />} />

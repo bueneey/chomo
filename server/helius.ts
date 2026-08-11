@@ -672,7 +672,7 @@ async function buildChomoState() {
   // One wallet fetch + one tx fetch (shared by feed + chart)
   const [walletLive, txs] = await Promise.all([
     getLiveWallet(),
-    fetchTransactions(heliusKey, wallet, 40),
+    fetchTransactions(heliusKey, wallet, 100),
   ])
 
   const feedItems = txs.map((tx) => classifyTx(tx, wallet))

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useChomoState } from '../api/hooks'
 import {
@@ -14,6 +14,7 @@ import {
   hasLink,
   timeAgo,
 } from '../config'
+import { CHOMO_LOGS } from '../logs'
 import type { AgentEvent, Position } from '../types'
 import { PnlChart } from './PnlChart'
 import { TradeFeed } from './TradeFeed'
@@ -98,11 +99,26 @@ function Fold({
 function HomePage() {
   const { data, isLoading, error } = useChomoState()
   const wallet = data?.wallet
-  const pnl = wallet?.totalPnlUsd ?? 0
+  const vsBag = wallet ? wallet.equityUsd - (data?.startingBankrollUsd ?? config.startingBankroll) : 0
   const recent = (data?.feed ?? []).slice(0, 8)
   const thoughts = (data?.events ?? [])
-    .filter((e: AgentEvent) => e.kind === 'thought' || e.kind === 'journal' || e.kind === 'trade')
-    .slice(0, 10)
+    .filter((e: AgentEvent) => e.kind === 'thought' || e.kind === 'journal' || e.kind === 'trade' || e.kind === 'did')
+    .slice(0, 12)
+  const [nowLine, setNowLine] = useState(
+    () => thoughts[0]?.text ?? CHOMO_LOGS[Math.floor(Math.random() * CHOMO_LOGS.length)]!,
+  )
+
+  const topThought = thoughts[0]?.text
+  useEffect(() => {
+    if (topThought) setNowLine(topThought)
+  }, [topThought])
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNowLine(CHOMO_LOGS[Math.floor(Math.random() * CHOMO_LOGS.length)]!)
+    }, 12_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   return (
     <>
@@ -115,7 +131,7 @@ function HomePage() {
 
       <div className="kpi-strip">
         <div className="kpi">
-          <span>equity</span>
+          <span>balance</span>
           <strong>{wallet ? formatUsd(wallet.equityUsd) : isLoading ? '…' : '—'}</strong>
         </div>
         <div className="kpi">
@@ -123,14 +139,14 @@ function HomePage() {
           <strong>{wallet ? formatSol(wallet.balanceSol, 3) : isLoading ? '…' : '—'}</strong>
         </div>
         <div className="kpi">
-          <span>pnl</span>
-          <strong className={pnl > 0 ? 'up' : pnl < 0 ? 'down' : ''}>
-            {wallet ? formatPnl(pnl) : isLoading ? '…' : '—'}
-          </strong>
+          <span>tokens</span>
+          <strong>{wallet ? formatUsd(wallet.tokenValueUsd) : isLoading ? '…' : '—'}</strong>
         </div>
         <div className="kpi">
-          <span>bag</span>
-          <strong>${config.startingBankroll}</strong>
+          <span>vs bag</span>
+          <strong className={vsBag > 0 ? 'up' : vsBag < 0 ? 'down' : ''}>
+            {wallet ? formatPnl(vsBag) : isLoading ? '…' : '—'}
+          </strong>
         </div>
       </div>
 
@@ -138,8 +154,8 @@ function HomePage() {
         <div className="dense-col">
           <section className="panel panel-tight">
             <div className="panel-head">
-              <div className="panel-title">pnl · all time</div>
-              <span className="muted">hover for details</span>
+              <div className="panel-title">wallet balance</div>
+              <span className="muted">live · hover for details</span>
             </div>
             <PnlChart points={data?.chart.points ?? []} />
           </section>
@@ -147,7 +163,7 @@ function HomePage() {
           <section className="panel panel-tight">
             <div className="panel-head">
               <div className="panel-title">book</div>
-              <span className="muted">{displayWallet(wallet?.address)}</span>
+              <span className="muted">wallet: {displayWallet(wallet?.address)}</span>
             </div>
             <div className="book-mini">
               <div>
@@ -159,14 +175,12 @@ function HomePage() {
                 <strong>{wallet ? formatUsd(wallet.tokenValueUsd) : '—'}</strong>
               </div>
               <div>
-                <span>equity</span>
+                <span>balance</span>
                 <strong>{wallet ? formatUsd(wallet.equityUsd) : '—'}</strong>
               </div>
               <div>
-                <span>pnl</span>
-                <strong className={pnl > 0 ? 'up' : pnl < 0 ? 'down' : ''}>
-                  {wallet ? formatPnl(pnl) : '—'}
-                </strong>
+                <span>sol</span>
+                <strong>{wallet ? formatSol(wallet.balanceSol, 4) : '—'}</strong>
               </div>
             </div>
           </section>
@@ -212,9 +226,7 @@ function HomePage() {
               <div className="panel-title">now / tape</div>
               <span className="muted">{data ? timeAgo(data.updatedAt) : '…'}</span>
             </div>
-            <p className="now-line">
-              {thoughts[0]?.text ?? 'waking up… opening fomo… trying not to lose the hundred.'}
-            </p>
+            <p className="now-line">{nowLine}</p>
             <div className="scroll-pane scroll-pane-sm">
               {!thoughts.length ? (
                 <p className="empty">openclaw will write here</p>
@@ -245,15 +257,18 @@ function HomePage() {
             )}
           </Fold>
 
-          <Fold title="damage report" meta={wallet ? (pnl >= 0 ? 'intact' : 'bleeding') : '—'}>
-            <div className={`damage-big ${pnl > 0 ? 'up' : pnl < 0 ? 'down' : ''}`}>
-              {wallet ? (pnl >= 0 ? 'bag intact.' : 'bleeding.') : 'awaiting funds.'}
+          <Fold
+            title="damage report"
+            meta={wallet ? (vsBag >= 0 ? 'intact' : 'bleeding') : '—'}
+          >
+            <div className={`damage-big ${vsBag > 0 ? 'up' : vsBag < 0 ? 'down' : ''}`}>
+              {wallet ? (vsBag >= 0 ? 'bag intact.' : 'bleeding.') : 'awaiting funds.'}
             </div>
             <p className="about-text">
               starting <strong>${config.startingBankroll}</strong>
               {wallet ? (
                 <>
-                  . equity <strong>{formatUsd(wallet.equityUsd)}</strong>. don’t lose it.
+                  . wallet balance <strong>{formatUsd(wallet.equityUsd)}</strong>. don’t lose it.
                 </>
               ) : null}
             </p>
@@ -293,7 +308,7 @@ function FeedPage() {
       <div className="page-head">
         <h2 className="page-title">live trade feed</h2>
         <span className="muted">
-          {displayWallet(wallet)} · {isLoading ? 'loading…' : `${data?.feed.length ?? 0}`}
+          wallet: {displayWallet(wallet)} · {isLoading ? 'loading…' : `${data?.feed.length ?? 0}`}
         </span>
       </div>
       <section className="panel panel-tight">
@@ -417,10 +432,10 @@ export function Terminal() {
           <div className="footer-links">
             {explorer ? (
               <a href={explorer} target="_blank" rel="noreferrer">
-                wallet {displayWallet(wallet)}
+                wallet: {displayWallet(wallet)}
               </a>
             ) : (
-              <span>wallet {displayWallet(wallet)}</span>
+              <span>wallet: {displayWallet(wallet)}</span>
             )}
             <CopyBtn value={config.tokenCa} label={`ca ${displayCa()}`} />
             {sol ? (

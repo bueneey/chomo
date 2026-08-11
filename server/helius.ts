@@ -20,8 +20,8 @@ let solPriceCache: { at: number; value: number } | null = null
 let stateCache: { at: number; value: Awaited<ReturnType<typeof buildChomoState>> } | null = null
 let stateInflight: Promise<Awaited<ReturnType<typeof buildChomoState>>> | null = null
 
-const STATE_TTL_MS = 12_000
-const SOL_PRICE_TTL_MS = 60_000
+const STATE_TTL_MS = 3_000
+const SOL_PRICE_TTL_MS = 30_000
 const META_TTL_MS = 5 * 60_000
 const metaCache = new Map<string, { at: number; symbol: string; name: string; logo?: string }>()
 
@@ -495,6 +495,16 @@ export async function getFeed(limit = 50): Promise<FeedResponse> {
   return { items, wallet, source: 'helius', count: items.length }
 }
 
+function solDeltaForTx(tx: HeliusTx, wallet: string): number {
+  let delta = 0
+  for (const n of tx.nativeTransfers ?? []) {
+    if (n.toUserAccount === wallet) delta += n.amount / 1e9
+    if (n.fromUserAccount === wallet) delta -= n.amount / 1e9
+  }
+  if (tx.feePayer === wallet && tx.fee) delta -= tx.fee / 1e9
+  return delta
+}
+
 function buildChartFromTxs(
   wallet: string,
   txs: HeliusTx[],
@@ -503,52 +513,52 @@ function buildChartFromTxs(
   live: LiveWallet | null,
 ): ChartResponse {
   const chronological = [...txs].sort((a, b) => a.timestamp - b.timestamp)
-  let solBalance = solPriceUsd > 0 ? startingBankroll / solPriceUsd : 0
-  const points: ChartPoint[] = []
+  const deltas = chronological.map((tx) => ({
+    timestamp: (tx.timestamp || 0) * 1000,
+    delta: solDeltaForTx(tx, wallet),
+  }))
 
-  if (chronological.length) {
-    points.push({
-      timestamp: chronological[0]!.timestamp * 1000 - 60_000,
-      pnlUsd: 0,
-      pnlSol: 0,
-      equityUsd: startingBankroll,
+  // Anchor to live SOL balance, walk backwards for accurate historical SOL.
+  let sol = live?.balanceSol ?? 0
+  const series: Array<{ timestamp: number; balanceSol: number }> = [
+    { timestamp: Date.now(), balanceSol: sol },
+  ]
+
+  for (let i = deltas.length - 1; i >= 0; i--) {
+    const row = deltas[i]!
+    sol -= row.delta
+    series.push({ timestamp: row.timestamp, balanceSol: Math.max(0, sol) })
+  }
+  series.reverse()
+
+  if (series.length === 1 && live) {
+    series.unshift({
+      timestamp: Date.now() - 60_000,
+      balanceSol: live.balanceSol,
     })
   }
 
-  for (const tx of chronological) {
-    let delta = 0
-    for (const n of tx.nativeTransfers ?? []) {
-      if (n.toUserAccount === wallet) delta += n.amount / 1e9
-      if (n.fromUserAccount === wallet) delta -= n.amount / 1e9
+  const points: ChartPoint[] = series.map((row, index) => {
+    const isLatest = index === series.length - 1
+    // Latest point uses full wallet equity (SOL + tokens). History approximates SOL×spot.
+    const balanceUsd =
+      isLatest && live ? live.equityUsd : row.balanceSol * solPriceUsd
+    return {
+      timestamp: row.timestamp,
+      balanceUsd,
+      balanceSol: isLatest && live ? live.balanceSol : row.balanceSol,
+      equityUsd: balanceUsd,
+      pnlUsd: live ? balanceUsd - startingBankroll : 0,
+      pnlSol: solPriceUsd > 0 ? (balanceUsd - startingBankroll) / solPriceUsd : 0,
     }
-    if (tx.feePayer === wallet && tx.fee) delta -= tx.fee / 1e9
-    solBalance += delta
-    const equityUsd = solBalance * solPriceUsd
-    const pnlUsd = equityUsd - startingBankroll
-    points.push({
-      timestamp: tx.timestamp * 1000,
-      pnlUsd,
-      pnlSol: solPriceUsd > 0 ? pnlUsd / solPriceUsd : 0,
-      equityUsd,
-    })
-  }
-
-  if (live) {
-    points.push({
-      timestamp: Date.now(),
-      pnlUsd: live.totalPnlUsd,
-      pnlSol: live.totalPnlSol,
-      equityUsd: live.equityUsd,
-    })
-  }
+  })
 
   const byTs = new Map<number, ChartPoint>()
   for (const p of points) byTs.set(p.timestamp, p)
   let deduped = [...byTs.values()].sort((a, b) => a.timestamp - b.timestamp)
 
-  // Downsample for chart smoothness / payload size
-  if (deduped.length > 60) {
-    const step = Math.ceil(deduped.length / 60)
+  if (deduped.length > 80) {
+    const step = Math.ceil(deduped.length / 80)
     const sampled: ChartPoint[] = []
     for (let i = 0; i < deduped.length; i += step) sampled.push(deduped[i]!)
     const last = deduped[deduped.length - 1]!
@@ -560,8 +570,8 @@ function buildChartFromTxs(
     points: deduped,
     meta: {
       count: deduped.length,
-      source: 'helius_flow_anchor',
-      kind: 'equity_pnl',
+      source: 'helius_sol_anchor_live_equity',
+      kind: 'wallet_balance',
       startingBankrollUsd: startingBankroll,
     },
   }
@@ -570,6 +580,32 @@ function buildChartFromTxs(
 export async function getChart(): Promise<ChartResponse> {
   const state = await getChomoState()
   return state.chart
+}
+
+const CHOMO_SERVER_LOGS = [
+  'staring at the feed. something smells like cabal.',
+  'no thesis. just vibes. dangerous combo.',
+  'checking the bag again. still counting.',
+  'refusing to ape… for now.',
+  'if i lose the hundred i become lore.',
+  'mute the noise. unmute the noise. repeat.',
+  'green candle. probably a trap. still looking.',
+  'fomo feed scroll speed: unhinged.',
+  'one job: don’t lose it. brain: unavailable.',
+  'copying nobody. stalking everybody.',
+  'journal entry: felt something. unclear what.',
+  'openclaw hands are twitching.',
+]
+
+function randomThoughts(count = 3): AgentEvent[] {
+  const shuffled = [...CHOMO_SERVER_LOGS].sort(() => Math.random() - 0.5)
+  const now = Date.now()
+  return shuffled.slice(0, count).map((text, i) => ({
+    id: `thought-${now}-${i}`,
+    at: new Date(now - (i + 1) * 55_000).toISOString(),
+    kind: 'thought' as const,
+    text,
+  }))
 }
 
 async function buildChomoState() {
@@ -586,7 +622,7 @@ async function buildChomoState() {
         meta: {
           count: 0,
           source: 'none',
-          kind: 'equity_pnl',
+          kind: 'wallet_balance',
           startingBankrollUsd: startingBankroll,
         },
       },
@@ -615,7 +651,7 @@ async function buildChomoState() {
         meta: {
           count: 0,
           source: 'none',
-          kind: 'equity_pnl',
+          kind: 'wallet_balance',
           startingBankrollUsd: startingBankroll,
         },
       },
@@ -648,12 +684,16 @@ async function buildChomoState() {
     walletLive,
   )
 
-  const events: AgentEvent[] = feedItems.slice(0, 12).map((item, i) => ({
+  const tradeEvents: AgentEvent[] = feedItems.slice(0, 10).map((item, i) => ({
     id: `${item.id}-${i}`,
     at: new Date(item.timestamp).toISOString(),
     kind: item.action.startsWith('swap') ? 'trade' : 'did',
     text: item.headline + (item.solDelta != null ? ` · ${item.solDelta.toFixed(4)} SOL` : ''),
   }))
+
+  const events: AgentEvent[] = [...tradeEvents, ...randomThoughts(4)].sort(
+    (a, b) => Date.parse(b.at) - Date.parse(a.at),
+  )
 
   if (!events.length) {
     events.push({

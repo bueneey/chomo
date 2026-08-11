@@ -11,17 +11,20 @@ import {
 } from 'lightweight-charts'
 import type { ChartPoint } from '../types'
 
+function pointValue(p: ChartPoint): number {
+  return p.balanceUsd ?? p.equityUsd ?? p.pnlUsd ?? 0
+}
+
 function chartKey(points: ChartPoint[]): string {
   if (!points.length) return '0'
   const last = points[points.length - 1]!
-  return `${points.length}:${last.timestamp}:${last.pnlUsd.toFixed(4)}`
+  return `${points.length}:${last.timestamp}:${pointValue(last).toFixed(4)}`
 }
 
-function formatHoverPnl(n: number): string {
+function formatHoverBalance(n: number): string {
   const abs = Math.abs(n)
-  const sign = n > 0 ? '+' : n < 0 ? '-' : ''
-  if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(1)}K`
-  return `${sign}$${abs.toFixed(2)}`
+  if (abs >= 1000) return `$${(abs / 1000).toFixed(1)}K`
+  return `$${abs.toFixed(2)}`
 }
 
 function formatHoverTime(tsMs: number): string {
@@ -35,7 +38,7 @@ function formatHoverTime(tsMs: number): string {
   })
 }
 
-type Tip = { pnl: number; timeLabel: string; x: number; y: number }
+type Tip = { value: number; timeLabel: string; x: number; y: number }
 
 export function PnlChart({ points }: { points: ChartPoint[] }) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
@@ -115,12 +118,8 @@ export function PnlChart({ points }: { points: ChartPoint[] }) {
         setTip(null)
         return
       }
-      const up = value >= 0
-      series.applyOptions({
-        crosshairMarkerBackgroundColor: up ? '#3dff8a' : '#ff5c6a',
-      })
       setTip({
-        pnl: value,
+        value,
         timeLabel: formatHoverTime(t * 1000),
         x: Math.min(Math.max(param.point.x, 12), el.clientWidth - 160),
         y: Math.max(param.point.y - 58, 8),
@@ -154,18 +153,12 @@ export function PnlChart({ points }: { points: ChartPoint[] }) {
       return
     }
 
-    const up = (points[points.length - 1]?.pnlUsd ?? 0) >= 0
-    series.applyOptions({
-      lineColor: up ? '#3dff8a' : '#ff5c6a',
-      topColor: up ? 'rgba(61,255,138,0.22)' : 'rgba(255,92,106,0.22)',
-      crosshairMarkerBackgroundColor: up ? '#3dff8a' : '#ff5c6a',
-    })
-
     const dedup: Array<{ time: UTCTimestamp; value: number }> = []
     const map = new Map<number, number>()
     for (const p of points) {
       const time = Math.floor(p.timestamp / 1000)
-      const row = { time: time as UTCTimestamp, value: p.pnlUsd }
+      const value = pointValue(p)
+      const row = { time: time as UTCTimestamp, value }
       const prev = dedup[dedup.length - 1]
       if (prev && prev.time === row.time) {
         prev.value = row.value
@@ -184,11 +177,8 @@ export function PnlChart({ points }: { points: ChartPoint[] }) {
     <div className="chart-wrap" ref={wrapRef}>
       {points.length < 2 ? <div className="empty">not enough history yet</div> : null}
       {tip ? (
-        <div
-          className={`chart-tip ${tip.pnl >= 0 ? 'up' : 'down'}`}
-          style={{ left: tip.x, top: tip.y }}
-        >
-          <strong>{formatHoverPnl(tip.pnl)}</strong>
+        <div className="chart-tip up" style={{ left: tip.x, top: tip.y }}>
+          <strong>{formatHoverBalance(tip.value)}</strong>
           <span>{tip.timeLabel}</span>
         </div>
       ) : null}

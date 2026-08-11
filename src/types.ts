@@ -28,8 +28,14 @@ export type Position = {
 
 export type ChartPoint = {
   timestamp: number
-  pnlUsd: number
-  pnlSol: number
+  /** Total wallet value in USD (chart series). */
+  balanceUsd: number
+  /** Native SOL balance at that point (approx from chain flow). */
+  balanceSol: number
+  /** @deprecated use balanceUsd */
+  pnlUsd?: number
+  /** @deprecated */
+  pnlSol?: number
   equityUsd?: number
 }
 

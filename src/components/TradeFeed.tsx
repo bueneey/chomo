@@ -11,7 +11,7 @@ const FILTERS: Array<{ id: 'all' | FeedAction; label: string }> = [
   { id: 'send', label: 'send' },
 ]
 
-export function TradeFeed({ items }: { items: FeedItem[] }) {
+export function TradeFeed({ items, compact = false }: { items: FeedItem[]; compact?: boolean }) {
   const [filter, setFilter] = useState<'all' | FeedAction>('all')
   const [q, setQ] = useState('')
 
@@ -28,24 +28,28 @@ export function TradeFeed({ items }: { items: FeedItem[] }) {
 
   return (
     <div>
-      <input
-        className="search"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="search symbol, mint, tx…"
-      />
-      <div className="filters">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            className={`filter-btn${filter === f.id ? ' active' : ''}`}
-            onClick={() => setFilter(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      {!compact ? (
+        <>
+          <input
+            className="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="search symbol, mint, tx…"
+          />
+          <div className="filters">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={`filter-btn${filter === f.id ? ' active' : ''}`}
+                onClick={() => setFilter(f.id)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
 
       {!filtered.length ? (
         <p className="empty">no on-chain activity yet</p>

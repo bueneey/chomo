@@ -13,7 +13,6 @@ const queryClient = new QueryClient({
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="page-depth" aria-hidden="true" />
       <BrowserRouter>
         <Terminal />
       </BrowserRouter>

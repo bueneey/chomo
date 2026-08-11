@@ -24,33 +24,33 @@ export function PnlChart({ points }: { points: ChartPoint[] }) {
       autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#8b93a7',
-        fontFamily: 'Outfit, sans-serif',
+        textColor: '#5a6358',
+        fontFamily: 'IBM Plex Sans, sans-serif',
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: 'rgba(255,255,255,0.04)' },
-        horzLines: { color: 'rgba(255,255,255,0.04)' },
+        vertLines: { color: 'rgba(20, 24, 20, 0.06)' },
+        horzLines: { color: 'rgba(20, 24, 20, 0.06)' },
       },
       rightPriceScale: {
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: 'rgba(20, 24, 20, 0.12)',
       },
       timeScale: {
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: 'rgba(20, 24, 20, 0.12)',
         timeVisible: true,
         secondsVisible: false,
       },
       crosshair: {
-        vertLine: { color: 'rgba(255,255,255,0.2)' },
-        horzLine: { color: 'rgba(255,255,255,0.2)' },
+        vertLine: { color: 'rgba(26, 33, 84, 0.25)' },
+        horzLine: { color: 'rgba(26, 33, 84, 0.25)' },
       },
     })
 
     const up = polarity >= 0
     const series = chart.addSeries(AreaSeries, {
-      lineColor: up ? '#3dff8a' : '#ff5c6a',
-      topColor: up ? 'rgba(61,255,138,0.28)' : 'rgba(255,92,106,0.28)',
-      bottomColor: 'rgba(0,0,0,0)',
+      lineColor: up ? '#3d6b3d' : '#a84848',
+      topColor: up ? 'rgba(61,107,61,0.22)' : 'rgba(168,72,72,0.22)',
+      bottomColor: 'rgba(255,255,255,0)',
       lineWidth: 2,
       priceLineVisible: false,
     })
@@ -82,11 +82,8 @@ export function PnlChart({ points }: { points: ChartPoint[] }) {
         value: p.pnlUsd,
       }
       const prev = dedup[dedup.length - 1]
-      if (prev && prev.time === row.time) {
-        prev.value = row.value
-      } else {
-        dedup.push(row)
-      }
+      if (prev && prev.time === row.time) prev.value = row.value
+      else dedup.push(row)
     }
 
     series.setData(dedup)

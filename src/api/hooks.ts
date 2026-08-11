@@ -15,9 +15,11 @@ export function useChomoState() {
   return useQuery({
     queryKey: ['chomo-state'],
     queryFn: () => getJson<ChomoState>('/state'),
-    refetchInterval: 6_000,
-    staleTime: 4_000,
+    refetchInterval: 15_000,
+    staleTime: 12_000,
+    refetchOnWindowFocus: false,
     retry: 1,
+    placeholderData: (prev) => prev,
   })
 }
 
@@ -25,8 +27,9 @@ export function useWalletLive() {
   return useQuery({
     queryKey: ['wallet-live'],
     queryFn: () => getJson<LiveWallet>('/wallet/live'),
-    refetchInterval: 8_000,
-    staleTime: 4_000,
+    refetchInterval: 20_000,
+    staleTime: 12_000,
+    refetchOnWindowFocus: false,
     retry: 1,
   })
 }
@@ -35,8 +38,9 @@ export function useWalletChart() {
   return useQuery({
     queryKey: ['wallet-chart'],
     queryFn: () => getJson<ChartResponse>('/wallet/chart'),
-    refetchInterval: 30_000,
-    staleTime: 10_000,
+    refetchInterval: 45_000,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
     retry: 1,
   })
 }
@@ -44,9 +48,10 @@ export function useWalletChart() {
 export function useOnchainFeed() {
   return useQuery({
     queryKey: ['feed-onchain'],
-    queryFn: () => getJson<FeedResponse>('/feed/onchain?limit=50'),
-    refetchInterval: 20_000,
-    staleTime: 8_000,
+    queryFn: () => getJson<FeedResponse>('/feed/onchain?limit=40'),
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
     retry: 1,
   })
 }

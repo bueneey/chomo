@@ -9,12 +9,17 @@ import {
 } from 'lightweight-charts'
 import type { ChartPoint } from '../types'
 
+function chartKey(points: ChartPoint[]): string {
+  if (!points.length) return '0'
+  const last = points[points.length - 1]!
+  return `${points.length}:${last.timestamp}:${last.pnlUsd.toFixed(4)}`
+}
+
 export function PnlChart({ points }: { points: ChartPoint[] }) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null)
-
-  const polarity = points.length > 1 ? Math.sign(points[points.length - 1]?.pnlUsd ?? 0) : 0
+  const lastKey = useRef('')
 
   useEffect(() => {
     const el = wrapRef.current
@@ -44,10 +49,9 @@ export function PnlChart({ points }: { points: ChartPoint[] }) {
       },
     })
 
-    const up = polarity >= 0
     const series = chart.addSeries(AreaSeries, {
-      lineColor: up ? '#3dff8a' : '#ff5c6a',
-      topColor: up ? 'rgba(61,255,138,0.22)' : 'rgba(255,92,106,0.22)',
+      lineColor: '#3dff8a',
+      topColor: 'rgba(61,255,138,0.22)',
       bottomColor: 'rgba(0,0,0,0)',
       lineWidth: 2,
       priceLineVisible: false,
@@ -60,18 +64,29 @@ export function PnlChart({ points }: { points: ChartPoint[] }) {
       chart.remove()
       chartRef.current = null
       seriesRef.current = null
+      lastKey.current = ''
     }
-  }, [polarity])
+  }, [])
 
   useEffect(() => {
     const series = seriesRef.current
     const chart = chartRef.current
     if (!series || !chart) return
 
+    const key = chartKey(points)
+    if (key === lastKey.current) return
+    lastKey.current = key
+
     if (points.length < 2) {
       series.setData([])
       return
     }
+
+    const up = (points[points.length - 1]?.pnlUsd ?? 0) >= 0
+    series.applyOptions({
+      lineColor: up ? '#3dff8a' : '#ff5c6a',
+      topColor: up ? 'rgba(61,255,138,0.22)' : 'rgba(255,92,106,0.22)',
+    })
 
     const dedup: Array<{ time: UTCTimestamp; value: number }> = []
     for (const p of points) {

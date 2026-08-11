@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type {
   AgentEvent,
@@ -14,6 +14,16 @@ import type {
 const HELIUS_RPC = (key: string) => `https://mainnet.helius-rpc.com/?api-key=${key}`
 const HELIUS_API = (path: string, key: string) =>
   `https://api.helius.xyz${path}${path.includes('?') ? '&' : '?'}api-key=${key}`
+
+let envCache: { mtimeMs: number; values: Record<string, string> } | null = null
+let solPriceCache: { at: number; value: number } | null = null
+let stateCache: { at: number; value: Awaited<ReturnType<typeof buildChomoState>> } | null = null
+let stateInflight: Promise<Awaited<ReturnType<typeof buildChomoState>>> | null = null
+
+const STATE_TTL_MS = 12_000
+const SOL_PRICE_TTL_MS = 60_000
+const META_TTL_MS = 5 * 60_000
+const metaCache = new Map<string, { at: number; symbol: string; name: string; logo?: string }>()
 
 function parseEnvFile(filePath: string): Record<string, string> {
   if (!existsSync(filePath)) return {}
@@ -36,9 +46,21 @@ function parseEnvFile(filePath: string): Record<string, string> {
   return out
 }
 
+function readEnvFileCached(): Record<string, string> {
+  const filePath = resolve(process.cwd(), '.env')
+  if (!existsSync(filePath)) {
+    envCache = null
+    return {}
+  }
+  const mtimeMs = statSync(filePath).mtimeMs
+  if (envCache && envCache.mtimeMs === mtimeMs) return envCache.values
+  const values = parseEnvFile(filePath)
+  envCache = { mtimeMs, values }
+  return values
+}
+
 function env(name: string, fallback = ''): string {
-  // Local .env overrides when present; otherwise use host/process env (Railway etc).
-  const fileEnv = parseEnvFile(resolve(process.cwd(), '.env'))
+  const fileEnv = readEnvFileCached()
   const value = fileEnv[name] ?? process.env[name] ?? fallback
   return String(value).trim()
 }
@@ -64,29 +86,33 @@ async function rpc<T>(key: string, method: string, params: unknown[]): Promise<T
 }
 
 export async function fetchSolPriceUsd(): Promise<number> {
+  if (solPriceCache && Date.now() - solPriceCache.at < SOL_PRICE_TTL_MS) {
+    return solPriceCache.value
+  }
+
+  let value = 150
   try {
     const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', {
       headers: { Accept: 'application/json' },
     })
     if (res.ok) {
       const data = (await res.json()) as { solana?: { usd?: number } }
-      if (data.solana?.usd) return data.solana.usd
+      if (data.solana?.usd) value = data.solana.usd
     }
   } catch {
-    /* fall through */
-  }
-
-  try {
-    const res = await fetch('https://price.jup.ag/v6/price?ids=SOL')
-    if (res.ok) {
-      const data = (await res.json()) as { data?: { SOL?: { price?: number } } }
-      if (data.data?.SOL?.price) return data.data.SOL.price
+    try {
+      const res = await fetch('https://price.jup.ag/v6/price?ids=SOL')
+      if (res.ok) {
+        const data = (await res.json()) as { data?: { SOL?: { price?: number } } }
+        if (data.data?.SOL?.price) value = data.data.SOL.price
+      }
+    } catch {
+      /* keep fallback */
     }
-  } catch {
-    /* fall through */
   }
 
-  return 150
+  solPriceCache = { at: Date.now(), value }
+  return value
 }
 
 type HeliusTokenBalance = {
@@ -131,6 +157,20 @@ async function fetchAssetMeta(
 ): Promise<Record<string, { symbol: string; name: string; logo?: string }>> {
   if (!mints.length) return {}
   const out: Record<string, { symbol: string; name: string; logo?: string }> = {}
+  const missing: string[] = []
+  const now = Date.now()
+
+  for (const mint of mints) {
+    const cached = metaCache.get(mint)
+    if (cached && now - cached.at < META_TTL_MS) {
+      out[mint] = { symbol: cached.symbol, name: cached.name, logo: cached.logo }
+    } else {
+      missing.push(mint)
+    }
+  }
+
+  if (!missing.length) return out
+
   try {
     const res = await fetch(HELIUS_RPC(key), {
       method: 'POST',
@@ -139,7 +179,7 @@ async function fetchAssetMeta(
         jsonrpc: '2.0',
         id: 1,
         method: 'getAssetBatch',
-        params: { ids: mints.slice(0, 100) },
+        params: { ids: missing.slice(0, 40) },
       }),
     })
     if (!res.ok) return out
@@ -163,7 +203,9 @@ async function fetchAssetMeta(
         asset.content?.links?.image ||
         asset.content?.files?.[0]?.cdn_uri ||
         asset.content?.files?.[0]?.uri
-      out[asset.id] = { symbol, name, logo }
+      const row = { symbol, name, logo }
+      out[asset.id] = row
+      metaCache.set(asset.id, { at: now, ...row })
     }
   } catch {
     /* ignore */
@@ -264,13 +306,18 @@ export async function getLiveWallet(): Promise<LiveWallet | null> {
   const balanceSol = balances.lamports / 1e9
   const balanceUsd = balanceSol * solPriceUsd
 
-  const mints = balances.tokens.map((t) => t.mint)
+  const mints = balances.tokens
+    .slice()
+    .sort((a, b) => b.amount / 10 ** b.decimals - a.amount / 10 ** a.decimals)
+    .slice(0, 20)
+    .map((t) => t.mint)
+  const pricedTokens = balances.tokens.filter((t) => mints.includes(t.mint))
   const [prices, meta] = await Promise.all([
     fetchTokenPrices(mints),
     fetchAssetMeta(heliusKey, mints),
   ])
 
-  const positions: Position[] = balances.tokens
+  const positions: Position[] = pricedTokens
     .map((t) => {
       const amount = t.amount / 10 ** t.decimals
       const priceUsd = prices[t.mint] ?? 0
@@ -288,6 +335,7 @@ export async function getLiveWallet(): Promise<LiveWallet | null> {
     })
     .filter((p) => p.amount > 0)
     .sort((a, b) => b.usdValue - a.usdValue)
+    .slice(0, 12)
 
   const tokenValueUsd = positions.reduce((sum, p) => sum + p.usdValue, 0)
   const equityUsd = balanceUsd + tokenValueUsd
@@ -447,35 +495,17 @@ export async function getFeed(limit = 50): Promise<FeedResponse> {
   return { items, wallet, source: 'helius', count: items.length }
 }
 
-export async function getChart(): Promise<ChartResponse> {
-  const { heliusKey, wallet, startingBankroll } = getConfig()
-  if (!wallet || !heliusKey) {
-    return {
-      points: [],
-      meta: {
-        count: 0,
-        source: 'helius',
-        kind: 'equity_pnl',
-        startingBankrollUsd: startingBankroll,
-      },
-    }
-  }
-
-  const [solPriceUsd, live, txs] = await Promise.all([
-    fetchSolPriceUsd(),
-    getLiveWallet(),
-    fetchTransactions(heliusKey, wallet, 100),
-  ])
-
-  // Reconstruct equity path from oldest → newest using net SOL flow as proxy,
-  // then anchor the latest point to live equity.
+function buildChartFromTxs(
+  wallet: string,
+  txs: HeliusTx[],
+  solPriceUsd: number,
+  startingBankroll: number,
+  live: LiveWallet | null,
+): ChartResponse {
   const chronological = [...txs].sort((a, b) => a.timestamp - b.timestamp)
-  let solBalance = 0
+  let solBalance = solPriceUsd > 0 ? startingBankroll / solPriceUsd : 0
   const points: ChartPoint[] = []
 
-  // Seed with starting bankroll converted to SOL at current price (approx)
-  const startSol = solPriceUsd > 0 ? startingBankroll / solPriceUsd : 0
-  solBalance = startSol
   if (chronological.length) {
     points.push({
       timestamp: chronological[0]!.timestamp * 1000 - 60_000,
@@ -491,7 +521,6 @@ export async function getChart(): Promise<ChartResponse> {
       if (n.toUserAccount === wallet) delta += n.amount / 1e9
       if (n.fromUserAccount === wallet) delta -= n.amount / 1e9
     }
-    // fees
     if (tx.feePayer === wallet && tx.fee) delta -= tx.fee / 1e9
     solBalance += delta
     const equityUsd = solBalance * solPriceUsd
@@ -513,10 +542,19 @@ export async function getChart(): Promise<ChartResponse> {
     })
   }
 
-  // Deduplicate by timestamp keeping last
   const byTs = new Map<number, ChartPoint>()
   for (const p of points) byTs.set(p.timestamp, p)
-  const deduped = [...byTs.values()].sort((a, b) => a.timestamp - b.timestamp)
+  let deduped = [...byTs.values()].sort((a, b) => a.timestamp - b.timestamp)
+
+  // Downsample for chart smoothness / payload size
+  if (deduped.length > 60) {
+    const step = Math.ceil(deduped.length / 60)
+    const sampled: ChartPoint[] = []
+    for (let i = 0; i < deduped.length; i += step) sampled.push(deduped[i]!)
+    const last = deduped[deduped.length - 1]!
+    if (sampled[sampled.length - 1] !== last) sampled.push(last)
+    deduped = sampled
+  }
 
   return {
     points: deduped,
@@ -529,7 +567,12 @@ export async function getChart(): Promise<ChartResponse> {
   }
 }
 
-export async function getChomoState() {
+export async function getChart(): Promise<ChartResponse> {
+  const state = await getChomoState()
+  return state.chart
+}
+
+async function buildChomoState() {
   const { startingBankroll, wallet, heliusKey } = getConfig()
 
   if (!wallet) {
@@ -590,13 +633,22 @@ export async function getChomoState() {
     }
   }
 
-  const [walletLive, chart, feed] = await Promise.all([
+  // One wallet fetch + one tx fetch (shared by feed + chart)
+  const [walletLive, txs] = await Promise.all([
     getLiveWallet(),
-    getChart(),
-    getFeed(40),
+    fetchTransactions(heliusKey, wallet, 40),
   ])
 
-  const events: AgentEvent[] = feed.items.slice(0, 20).map((item, i) => ({
+  const feedItems = txs.map((tx) => classifyTx(tx, wallet))
+  const chart = buildChartFromTxs(
+    wallet,
+    txs,
+    walletLive?.solPriceUsd ?? (await fetchSolPriceUsd()),
+    startingBankroll,
+    walletLive,
+  )
+
+  const events: AgentEvent[] = feedItems.slice(0, 12).map((item, i) => ({
     id: `${item.id}-${i}`,
     at: new Date(item.timestamp).toISOString(),
     kind: item.action.startsWith('swap') ? 'trade' : 'did',
@@ -618,9 +670,28 @@ export async function getChomoState() {
     model: 'openclaw',
     wallet: walletLive,
     chart,
-    feed: feed.items,
+    feed: feedItems,
     events,
     startingBankrollUsd: startingBankroll,
-    solPriceUsd: walletLive?.solPriceUsd ?? (await fetchSolPriceUsd()),
+    solPriceUsd: walletLive?.solPriceUsd ?? 0,
   }
+}
+
+export async function getChomoState() {
+  if (stateCache && Date.now() - stateCache.at < STATE_TTL_MS) {
+    return stateCache.value
+  }
+
+  if (stateInflight) return stateInflight
+
+  stateInflight = buildChomoState()
+    .then((value) => {
+      stateCache = { at: Date.now(), value }
+      return value
+    })
+    .finally(() => {
+      stateInflight = null
+    })
+
+  return stateInflight
 }

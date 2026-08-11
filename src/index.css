@@ -121,7 +121,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(16px) saturate(1.2);
+  backdrop-filter: blur(10px) saturate(1.1);
 }
 
 .top-nav-btn {
@@ -200,7 +200,7 @@ button {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: lowercase;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(8px);
 }
 
 .live-pill.warn {
@@ -254,12 +254,11 @@ button {
 /* glass panels — chud structure, fomo material */
 
 .panel {
-  background: var(--glass);
+  background: rgba(18, 22, 36, 0.85);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 1.35rem 1.4rem;
   margin-bottom: 0.9rem;
-  backdrop-filter: blur(18px) saturate(1.15);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 20px 50px -36px rgba(0, 0, 0, 0.85);
 }
 
@@ -361,11 +360,10 @@ button {
 }
 
 .stat-box {
-  background: var(--glass);
+  background: rgba(18, 22, 36, 0.85);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 1.25rem 1.3rem;
-  backdrop-filter: blur(18px);
 }
 
 .stat-box .panel-title {

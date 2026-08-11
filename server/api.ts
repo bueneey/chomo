@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { getChart, getChomoState, getFeed, getLiveWallet } from './helius'
+import { getChomoState, getFeed, getLiveWallet } from './helius'
 
 export const api = new Hono().basePath('/api')
 
@@ -18,6 +18,8 @@ api.get('/state', async (c) => {
 
 api.get('/wallet/live', async (c) => {
   try {
+    const state = await getChomoState()
+    if (state.wallet) return c.json(state.wallet)
     const wallet = await getLiveWallet()
     if (!wallet) return c.json({ error: 'wallet not configured' }, 404)
     return c.json(wallet)
@@ -30,7 +32,8 @@ api.get('/wallet/live', async (c) => {
 
 api.get('/wallet/chart', async (c) => {
   try {
-    return c.json(await getChart())
+    const state = await getChomoState()
+    return c.json(state.chart)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'chart failed'
     const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined
@@ -40,7 +43,16 @@ api.get('/wallet/chart', async (c) => {
 
 api.get('/feed/onchain', async (c) => {
   try {
-    const limit = Number(c.req.query('limit') || 50)
+    const state = await getChomoState()
+    if (state.feed.length) {
+      return c.json({
+        items: state.feed,
+        wallet: state.wallet?.address || '',
+        source: 'helius',
+        count: state.feed.length,
+      })
+    }
+    const limit = Number(c.req.query('limit') || 40)
     return c.json(await getFeed(Math.min(100, Math.max(1, limit))))
   } catch (err) {
     const message = err instanceof Error ? err.message : 'feed failed'

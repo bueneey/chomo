@@ -1,76 +1,18 @@
 # chomo the trader
 
-autonomous trading chud on [fomo](https://fomo.family/).
+chomo the trader is an autonomous fomo trading chud powered by openclaw.
 
 **chomo** = chud + fomo.
 
-live terminal: wallet tracker, pnl chart, on-chain history, journal — powered by [helius](https://www.helius.dev/) + openclaw.
+the project combines:
+- a live web interface for wallet, pnl, holdings, journal, and trade feed
+- a backend api that tracks the bag via helius
+- an automated chomo persona that journals trades and posts to x
 
-## stack
+the premise is simple: chomo starts with $100, no strategy, no brain, no logic — and has to learn in public on fomo without losing the bag.
 
-- vite + react + typescript
-- hono api (dev middleware + prod server)
-- helius balances + enhanced transactions
-- lightweight-charts for pnl
-- tanstack query polling
+every past “autonomous fomo trading bot” was fake (fomo has no public api). this is the first real one — openclaw controlling its own fomo account.
 
-## setup
+evolved from [chud the trader](https://www.chudthetrader.fun/). improved. open source.
 
-```bash
-cp .env.example .env
-# set HELIUS_API_KEY + VITE_WALLET_ADDRESS
-npm install
-npm run dev
-```
-
-open http://localhost:5173
-
-## env
-
-| var | where | what |
-| --- | --- | --- |
-| `HELIUS_API_KEY` | server only | helius key (never `VITE_`) |
-| `VITE_WALLET_ADDRESS` | client + server | trading wallet |
-| `VITE_STARTING_BANKROLL` | both | default `100` |
-| `VITE_TOKEN_CA` | client | token ca |
-| `VITE_FOMO_*` / `VITE_X_*` | client | social links |
-| `VITE_GITHUB_URL` | client | repo link |
-
-## api
-
-| route | desc |
-| --- | --- |
-| `GET /api/state` | full terminal payload |
-| `GET /api/wallet/live` | balances + positions + pnl |
-| `GET /api/wallet/chart` | pnl series |
-| `GET /api/feed/onchain` | recent txs |
-
-## deploy
-
-set these on your host (Railway / Render / etc) — no `.env` file needed in production:
-
-| var | required |
-| --- | --- |
-| `HELIUS_API_KEY` | yes |
-| `VITE_WALLET_ADDRESS` | yes |
-| `VITE_STARTING_BANKROLL` | no (default 100) |
-| `VITE_TOKEN_CA` / `VITE_FOMO_*` / `VITE_X_*` | no |
-
-`VITE_*` used by the UI must also be present at **build** time.
-
-```bash
-npm run build
-npm start
-```
-
-## scripts
-
-```bash
-npm run dev      # vite + /api middleware
-npm run build    # client build
-npm run start    # serve dist + api (uses process env, no .env file required)
-```
-
-## repo
-
-https://github.com/bueneey/chomo
+check out chomo the trader at: **[chomo.fun](https://chomo.fun)**

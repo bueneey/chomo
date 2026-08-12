@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { FeedAction, FeedItem } from '../types'
 import { formatSol, timeAgo } from '../config'
+import { TokenLogo } from './TokenLogo'
 
 const FILTERS: Array<{ id: 'all' | FeedAction; label: string }> = [
   { id: 'all', label: 'all' },
@@ -9,6 +10,8 @@ const FILTERS: Array<{ id: 'all' | FeedAction; label: string }> = [
   { id: 'swap', label: 'swaps' },
   { id: 'receive', label: 'recv' },
   { id: 'send', label: 'send' },
+  { id: 'transfer_in', label: 'in' },
+  { id: 'transfer_out', label: 'out' },
 ]
 
 export function TradeFeed({ items, compact = false }: { items: FeedItem[]; compact?: boolean }) {
@@ -25,6 +28,13 @@ export function TradeFeed({ items, compact = false }: { items: FeedItem[]; compa
         .some((v) => String(v).toLowerCase().includes(query))
     })
   }, [items, filter, q])
+
+  const emptyLabel =
+    !items.length
+      ? 'no on-chain activity yet'
+      : filter !== 'all' || q.trim()
+        ? 'no matches for this filter'
+        : 'no on-chain activity yet'
 
   return (
     <div>
@@ -52,13 +62,22 @@ export function TradeFeed({ items, compact = false }: { items: FeedItem[]; compa
       ) : null}
 
       {!filtered.length ? (
-        <p className="empty">no on-chain activity yet</p>
+        <p className="empty">{emptyLabel}</p>
       ) : (
         filtered.map((item) => (
           <article className="feed-row" key={item.id}>
             <div className={`badge ${item.action}`}>{item.label}</div>
             <div className="feed-main">
-              <strong>{item.headline}</strong>
+              <strong className="feed-title">
+                {item.tokenMint ? (
+                  <TokenLogo
+                    className="token-logo sm"
+                    src={item.tokenLogo}
+                    symbol={item.tokenSymbol || '?'}
+                  />
+                ) : null}
+                {item.headline}
+              </strong>
               {item.subline || item.description ? (
                 <p>{item.subline || item.description}</p>
               ) : null}

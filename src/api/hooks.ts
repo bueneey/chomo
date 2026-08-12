@@ -11,14 +11,17 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/** Single live poll — keep this modest so the UI stays smooth. */
+const LIVE_MS = 10_000
+
 export function useChomoState() {
   return useQuery({
     queryKey: ['chomo-state'],
     queryFn: () => getJson<ChomoState>('/state'),
-    refetchInterval: 3_000,
-    staleTime: 1_500,
-    refetchOnWindowFocus: true,
-    refetchIntervalInBackground: true,
+    refetchInterval: LIVE_MS,
+    staleTime: LIVE_MS,
+    refetchOnWindowFocus: false,
+    refetchIntervalInBackground: false,
     retry: 1,
     placeholderData: (prev) => prev,
   })
@@ -28,9 +31,9 @@ export function useWalletLive() {
   return useQuery({
     queryKey: ['wallet-live'],
     queryFn: () => getJson<LiveWallet>('/wallet/live'),
-    refetchInterval: 3_000,
-    staleTime: 1_500,
-    refetchOnWindowFocus: true,
+    refetchInterval: LIVE_MS,
+    staleTime: LIVE_MS,
+    refetchOnWindowFocus: false,
     retry: 1,
   })
 }
@@ -39,9 +42,9 @@ export function useWalletChart() {
   return useQuery({
     queryKey: ['wallet-chart'],
     queryFn: () => getJson<ChartResponse>('/wallet/chart'),
-    refetchInterval: 3_000,
-    staleTime: 1_500,
-    refetchOnWindowFocus: true,
+    refetchInterval: LIVE_MS,
+    staleTime: LIVE_MS,
+    refetchOnWindowFocus: false,
     retry: 1,
   })
 }
@@ -50,9 +53,9 @@ export function useOnchainFeed() {
   return useQuery({
     queryKey: ['feed-onchain'],
     queryFn: () => getJson<FeedResponse>('/feed/onchain?limit=40'),
-    refetchInterval: 3_000,
-    staleTime: 1_500,
-    refetchOnWindowFocus: true,
+    refetchInterval: LIVE_MS,
+    staleTime: LIVE_MS,
+    refetchOnWindowFocus: false,
     retry: 1,
   })
 }

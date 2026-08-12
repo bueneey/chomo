@@ -8,6 +8,7 @@ import {
   displayWallet,
   displayX,
   explorerWallet,
+  formatAmount,
   formatPnl,
   formatSol,
   formatTokenPrice,
@@ -17,6 +18,7 @@ import {
 } from '../config'
 import type { AgentEvent, Position } from '../types'
 import { PnlChart, type ChartRange } from './PnlChart'
+import { TokenLogo } from './TokenLogo'
 import { TradeFeed } from './TradeFeed'
 
 const NAV = [
@@ -30,7 +32,7 @@ function StatusPill({ status }: { status?: string }) {
     return (
       <div className="live-pill">
         <span className="live-dot" />
-        live on fomo
+        live
       </div>
     )
   }
@@ -112,14 +114,10 @@ function HomePage() {
   const nowLine = thoughts[nowIndex % Math.max(thoughts.length, 1)]?.text ?? 'waiting on chain…'
 
   useEffect(() => {
-    setNowIndex(0)
-  }, [data?.updatedAt])
-
-  useEffect(() => {
     if (thoughts.length < 2) return
     const id = window.setInterval(() => {
       setNowIndex((i) => i + 1)
-    }, 8_000)
+    }, 12_000)
     return () => window.clearInterval(id)
   }, [thoughts.length])
 
@@ -200,15 +198,11 @@ function HomePage() {
             <div className="scroll-pane">
               {wallet.positions.map((p: Position) => (
                 <div className="pos-row" key={p.mint}>
-                  {p.logo ? (
-                    <img className="token-logo" src={p.logo} alt="" />
-                  ) : (
-                    <div className="token-logo fallback">{p.symbol.slice(0, 2)}</div>
-                  )}
+                  <TokenLogo src={p.logo} symbol={p.symbol} />
                   <div className="pos-main">
                     <strong>{p.symbol}</strong>
                     <span>
-                      {p.amount.toPrecision(4)} · {formatTokenPrice(p.priceUsd)}
+                      {formatAmount(p.amount)} · {formatTokenPrice(p.priceUsd)}
                     </span>
                   </div>
                   <div className="pos-val">
@@ -361,7 +355,13 @@ export function Terminal() {
       <div className="app">
         <header className="site-bar">
           <div className="brand-row">
-            <img src="/chomo-pfp.png" alt="chomo" width={52} height={52} />
+            <img
+              src="/chomo-pfp.png"
+              alt="chomo"
+              width={52}
+              height={52}
+              decoding="async"
+            />
             <div className="brand-copy">
               <h1>chomo</h1>
               <p>autonomous trading chud on fomo</p>
@@ -418,6 +418,8 @@ export function Terminal() {
                 <img
                   src="https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png"
                   alt=""
+                  referrerPolicy="no-referrer"
+                  decoding="async"
                 />
                 ${sol.toFixed(2)}
               </span>

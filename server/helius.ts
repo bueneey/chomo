@@ -19,10 +19,12 @@ let envCache: { mtimeMs: number; values: Record<string, string> } | null = null
 let solPriceCache: { at: number; value: number } | null = null
 let stateCache: { at: number; value: Awaited<ReturnType<typeof buildChomoState>> } | null = null
 let stateInflight: Promise<Awaited<ReturnType<typeof buildChomoState>>> | null = null
+let priceCache: { at: number; prices: Record<string, number> } | null = null
 
-const STATE_TTL_MS = 2_000
-const SOL_PRICE_TTL_MS = 20_000
-const META_TTL_MS = 5 * 60_000
+const STATE_TTL_MS = 8_000
+const SOL_PRICE_TTL_MS = 60_000
+const PRICE_TTL_MS = 45_000
+const META_TTL_MS = 10 * 60_000
 const metaCache = new Map<
   string,
   { at: number; symbol: string; name: string; logo?: string; priceUsd?: number }
@@ -104,10 +106,13 @@ export async function fetchSolPriceUsd(): Promise<number> {
     }
   } catch {
     try {
-      const res = await fetch('https://price.jup.ag/v6/price?ids=SOL')
+      const res = await fetch(
+        'https://lite-api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112',
+      )
       if (res.ok) {
-        const data = (await res.json()) as { data?: { SOL?: { price?: number } } }
-        if (data.data?.SOL?.price) value = data.data.SOL.price
+        const data = (await res.json()) as Record<string, { usdPrice?: number } | null>
+        const price = Number(data.So11111111111111111111111111111111111111112?.usdPrice)
+        if (Number.isFinite(price) && price > 0) value = price
       }
     } catch {
       /* keep fallback */
@@ -141,58 +146,125 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return out
 }
 
+function normalizeLogoUrl(raw?: string | null): string | undefined {
+  if (!raw) return undefined
+  let url = raw.trim()
+  if (!url) return undefined
+
+  if (url.startsWith('ipfs://')) {
+    const path = url.slice('ipfs://'.length).replace(/^ipfs\//, '')
+    url = `https://ipfs.io/ipfs/${path}`
+  } else if (url.startsWith('ar://')) {
+    url = `https://arweave.net/${url.slice('ar://'.length)}`
+  } else if (url.startsWith('http://')) {
+    url = `https://${url.slice('http://'.length)}`
+  }
+
+  if (!/^https?:\/\//i.test(url) && !url.startsWith('data:image')) return undefined
+  // Skip metadata JSON URIs that Helius often puts first in files[]
+  if (/\.json(\?|#|$)/i.test(url)) return undefined
+  return url
+}
+
+function pickLogo(asset: {
+  content?: {
+    links?: { image?: string }
+    files?: Array<{ uri?: string; cdn_uri?: string; mime?: string }>
+  }
+}): string | undefined {
+  const fromLink = normalizeLogoUrl(asset.content?.links?.image)
+  if (fromLink) return fromLink
+
+  const files = asset.content?.files ?? []
+  for (const file of files) {
+    if (file.mime && !file.mime.startsWith('image/')) continue
+    const candidate = normalizeLogoUrl(file.cdn_uri) || normalizeLogoUrl(file.uri)
+    if (candidate) return candidate
+  }
+  for (const file of files) {
+    const candidate = normalizeLogoUrl(file.cdn_uri) || normalizeLogoUrl(file.uri)
+    if (candidate) return candidate
+  }
+  return undefined
+}
+
 async function fetchTokenPrices(mints: string[]): Promise<Record<string, number>> {
   if (!mints.length) return {}
+  const unique = [...new Set(mints)].slice(0, 24)
+  const now = Date.now()
   const out: Record<string, number> = {}
-  const unique = [...new Set(mints)]
 
-  // Jupiter Price API v3 (v2 is deprecated / empty)
-  for (const chunk of chunkArray(unique, 50)) {
-    try {
-      const res = await fetch(`https://lite-api.jup.ag/price/v3?ids=${chunk.join(',')}`, {
-        headers: { Accept: 'application/json' },
-      })
-      if (!res.ok) continue
-      const data = (await res.json()) as Record<string, { usdPrice?: number } | null>
-      for (const mint of chunk) {
-        const price = Number(data[mint]?.usdPrice)
-        if (Number.isFinite(price) && price > 0) out[mint] = price
+  // Reuse cached prices aggressively — this was the main lag source.
+  if (priceCache && now - priceCache.at < PRICE_TTL_MS) {
+    let hit = 0
+    for (const mint of unique) {
+      const price = priceCache.prices[mint]
+      if (price != null && price > 0) {
+        out[mint] = price
+        hit += 1
       }
-    } catch {
-      /* try next source */
     }
+    if (hit === unique.length) return out
   }
 
-  const missing = unique.filter((m) => out[m] == null)
-  // DexScreener covers most pump / meme mints Jupiter omits
-  for (const chunk of chunkArray(missing, 30)) {
-    try {
-      const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${chunk.join(',')}`, {
-        headers: { Accept: 'application/json' },
-      })
-      if (!res.ok) continue
-      const data = (await res.json()) as {
-        pairs?: Array<{
-          baseToken?: { address?: string }
-          priceUsd?: string
-          liquidity?: { usd?: number }
-        }>
+  const need = unique.filter((m) => out[m] == null)
+
+  await Promise.all(
+    chunkArray(need, 50).map(async (chunk) => {
+      try {
+        const res = await fetch(`https://lite-api.jup.ag/price/v3?ids=${chunk.join(',')}`, {
+          headers: { Accept: 'application/json' },
+        })
+        if (!res.ok) return
+        const data = (await res.json()) as Record<string, { usdPrice?: number } | null>
+        for (const mint of chunk) {
+          const price = Number(data[mint]?.usdPrice)
+          if (Number.isFinite(price) && price > 0) out[mint] = price
+        }
+      } catch {
+        /* ignore */
       }
-      const best = new Map<string, { price: number; liq: number }>()
-      for (const pair of data.pairs ?? []) {
-        const mint = pair.baseToken?.address
-        const price = Number(pair.priceUsd)
-        const liq = Number(pair.liquidity?.usd ?? 0)
-        if (!mint || !Number.isFinite(price) || price <= 0) continue
-        const prev = best.get(mint)
-        if (!prev || liq > prev.liq) best.set(mint, { price, liq })
-      }
-      for (const [mint, row] of best) out[mint] = row.price
-    } catch {
-      /* ignore */
-    }
+    }),
+  )
+
+  const missing = need.filter((m) => out[m] == null)
+  if (missing.length) {
+    await Promise.all(
+      chunkArray(missing, 30).map(async (chunk) => {
+        try {
+          const res = await fetch(
+            `https://api.dexscreener.com/latest/dex/tokens/${chunk.join(',')}`,
+            { headers: { Accept: 'application/json' } },
+          )
+          if (!res.ok) return
+          const data = (await res.json()) as {
+            pairs?: Array<{
+              baseToken?: { address?: string }
+              priceUsd?: string
+              liquidity?: { usd?: number }
+            }>
+          }
+          const best = new Map<string, { price: number; liq: number }>()
+          for (const pair of data.pairs ?? []) {
+            const mint = pair.baseToken?.address
+            const price = Number(pair.priceUsd)
+            const liq = Number(pair.liquidity?.usd ?? 0)
+            if (!mint || !Number.isFinite(price) || price <= 0) continue
+            const prev = best.get(mint)
+            if (!prev || liq > prev.liq) best.set(mint, { price, liq })
+          }
+          for (const [mint, row] of best) out[mint] = row.price
+        } catch {
+          /* ignore */
+        }
+      }),
+    )
   }
 
+  priceCache = {
+    at: now,
+    prices: { ...(priceCache?.prices ?? {}), ...out },
+  }
   return out
 }
 
@@ -212,7 +284,11 @@ async function fetchAssetMeta(
   for (const mint of mints) {
     const cached = metaCache.get(mint)
     if (cached && now - cached.at < META_TTL_MS) {
-      meta[mint] = { symbol: cached.symbol, name: cached.name, logo: cached.logo }
+      meta[mint] = {
+        symbol: cached.symbol,
+        name: cached.name,
+        logo: normalizeLogoUrl(cached.logo),
+      }
       if (cached.priceUsd != null && cached.priceUsd > 0) prices[mint] = cached.priceUsd
     } else {
       missing.push(mint)
@@ -243,7 +319,7 @@ async function fetchAssetMeta(
           content?: {
             metadata?: { symbol?: string; name?: string }
             links?: { image?: string }
-            files?: Array<{ uri?: string; cdn_uri?: string }>
+            files?: Array<{ uri?: string; cdn_uri?: string; mime?: string }>
           }
           token_info?: {
             symbol?: string
@@ -256,10 +332,7 @@ async function fetchAssetMeta(
         const symbol =
           asset.content?.metadata?.symbol || asset.token_info?.symbol || asset.id.slice(0, 4)
         const name = asset.content?.metadata?.name || symbol
-        const logo =
-          asset.content?.links?.image ||
-          asset.content?.files?.[0]?.cdn_uri ||
-          asset.content?.files?.[0]?.uri
+        const logo = pickLogo(asset)
         const priceUsd = Number(asset.token_info?.price_info?.price_per_token)
         const row = {
           symbol,
@@ -371,8 +444,11 @@ export async function getLiveWallet(): Promise<LiveWallet | null> {
   const balanceSol = balances.lamports / 1e9
   const balanceUsd = balanceSol * solPriceUsd
 
-  // Drop dust amounts, keep everything else so pump bags get priced.
-  const heldTokens = balances.tokens.filter((t) => t.amount / 10 ** t.decimals > 1e-6)
+  // Drop dust; cap priced set so wallet scans stay snappy.
+  const heldTokens = balances.tokens
+    .filter((t) => t.amount / 10 ** t.decimals > 1e-6)
+    .sort((a, b) => b.amount / 10 ** b.decimals - a.amount / 10 ** a.decimals)
+    .slice(0, 24)
   const mints = heldTokens.map((t) => t.mint)
   const [marketPrices, assetInfo] = await Promise.all([
     fetchTokenPrices(mints),
@@ -542,7 +618,9 @@ function classifyTx(tx: HeliusTx, wallet: string): FeedItem {
     tokenName: symbol,
     headline,
     description: tx.description,
-    subline: tokenAmount ? `${tokenAmount.toPrecision(4)} tokens` : undefined,
+    subline: tokenAmount
+      ? `${tokenAmount.toLocaleString(undefined, { maximumSignificantDigits: 6 })} tokens`
+      : undefined,
     solDelta: absSol > 0.00001 ? solDelta : undefined,
   }
 }
@@ -667,14 +745,14 @@ function journalLine(item: FeedItem): string {
 }
 
 function liveEventsFromFeed(feedItems: FeedItem[], walletLive: LiveWallet | null): AgentEvent[] {
-  const tradeEvents: AgentEvent[] = feedItems.slice(0, 40).map((item) => ({
+  const tradeEvents: AgentEvent[] = feedItems.slice(0, 16).map((item) => ({
     id: `tx-${item.id}`,
     at: new Date(item.timestamp).toISOString(),
     kind: item.action.startsWith('swap') ? ('trade' as const) : ('did' as const),
     text: `${item.headline}${item.solDelta != null ? ` · ${item.solDelta.toFixed(4)} SOL` : ''}`,
   }))
 
-  const journalEvents: AgentEvent[] = feedItems.slice(0, 20).map((item) => ({
+  const journalEvents: AgentEvent[] = feedItems.slice(0, 12).map((item) => ({
     id: `journal-${item.id}`,
     at: new Date(item.timestamp + 1).toISOString(),
     kind: 'journal' as const,
@@ -757,23 +835,37 @@ async function buildChomoState() {
   // One wallet fetch + one tx fetch (shared by feed + chart)
   const [walletLive, txs] = await Promise.all([
     getLiveWallet(),
-    fetchTransactions(heliusKey, wallet, 100),
+    fetchTransactions(heliusKey, wallet, 60),
   ])
 
   const feedItems = txs.map((tx) => classifyTx(tx, wallet))
-  // Prefer real token symbols on feed / journal lines when we already fetched meta.
-  const symbolByMint = new Map(
-    (walletLive?.positions ?? []).map((p) => [p.mint, p.symbol] as const),
-  )
+  // Resolve symbols/logos for feed mints (including sold tokens not in holdings).
+  const feedMints = [
+    ...new Set(feedItems.map((i) => i.tokenMint).filter((m): m is string => Boolean(m))),
+  ].slice(0, 24)
+  const feedMeta = feedMints.length ? await fetchAssetMeta(heliusKey, feedMints) : { meta: {}, prices: {} }
+  const symbolByMint = new Map<string, string>()
+  const logoByMint = new Map<string, string>()
+  for (const p of walletLive?.positions ?? []) {
+    symbolByMint.set(p.mint, p.symbol)
+    if (p.logo) logoByMint.set(p.mint, p.logo)
+  }
+  for (const [mint, info] of Object.entries(feedMeta.meta)) {
+    symbolByMint.set(mint, info.symbol)
+    if (info.logo) logoByMint.set(mint, info.logo)
+  }
   for (const item of feedItems) {
-    if (item.tokenMint && symbolByMint.has(item.tokenMint)) {
-      const symbol = symbolByMint.get(item.tokenMint)!
-      item.tokenSymbol = symbol
-      if (item.action === 'swap_buy') item.headline = `bought ${symbol}`
-      if (item.action === 'swap_sell') item.headline = `sold ${symbol}`
-      if (item.action === 'transfer_in') item.headline = `received ${symbol}`
-      if (item.action === 'transfer_out') item.headline = `sent ${symbol}`
-    }
+    if (!item.tokenMint) continue
+    const symbol = symbolByMint.get(item.tokenMint)
+    const logo = logoByMint.get(item.tokenMint)
+    if (logo) item.tokenLogo = logo
+    if (!symbol) continue
+    item.tokenSymbol = symbol
+    item.tokenName = symbol
+    if (item.action === 'swap_buy') item.headline = `bought ${symbol}`
+    else if (item.action === 'swap_sell') item.headline = `sold ${symbol}`
+    else if (item.action === 'transfer_in') item.headline = `received ${symbol}`
+    else if (item.action === 'transfer_out') item.headline = `sent ${symbol}`
   }
 
   const chart = buildChartFromTxs(

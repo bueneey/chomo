@@ -15,7 +15,7 @@ app.use(
   }),
 )
 
-// SPA fallback for client routes (/history, /journal, /about)
+// SPA fallback for client routes (/, /feed, /journal)
 app.get('*', async (c, next) => {
   if (c.req.path.startsWith('/api')) return next()
   return serveStatic({ root: './dist', path: '/index.html' })(c, next)

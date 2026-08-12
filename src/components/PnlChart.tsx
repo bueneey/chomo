@@ -43,16 +43,11 @@ function filterByRange(points: ChartPoint[], range: ChartRange): ChartPoint[] {
   return points.slice(-2)
 }
 
-function chartKey(points: ChartPoint[], range: ChartRange): string {
-  if (!points.length) return `${range}:0`
-  const last = points[points.length - 1]!
-  return `${range}:${points.length}:${last.timestamp}:${pointValue(last).toFixed(4)}`
-}
-
 function formatHoverBalance(n: number): string {
+  const sign = n < 0 ? '-' : ''
   const abs = Math.abs(n)
-  if (abs >= 1000) return `$${(abs / 1000).toFixed(1)}K`
-  return `$${abs.toFixed(2)}`
+  if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(1)}K`
+  return `${sign}$${abs.toFixed(2)}`
 }
 
 function formatHoverTime(tsMs: number): string {
@@ -80,7 +75,8 @@ export function PnlChart({
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null)
-  const lastKey = useRef('')
+  const lastStructure = useRef('')
+  const lastValue = useRef<number | null>(null)
   const pointMap = useRef(new Map<number, number>())
   const [tip, setTip] = useState<Tip | null>(null)
 
@@ -168,7 +164,8 @@ export function PnlChart({
       chart.remove()
       chartRef.current = null
       seriesRef.current = null
-      lastKey.current = ''
+      lastStructure.current = ''
+      lastValue.current = null
       setTip(null)
     }
   }, [])
@@ -178,13 +175,11 @@ export function PnlChart({
     const chart = chartRef.current
     if (!series || !chart) return
 
-    const key = chartKey(filtered, range)
-    if (key === lastKey.current) return
-    lastKey.current = key
-
     if (filtered.length < 2) {
       series.setData([])
       pointMap.current.clear()
+      lastStructure.current = ''
+      lastValue.current = null
       return
     }
 
@@ -204,8 +199,24 @@ export function PnlChart({
       }
     }
     pointMap.current = map
-    series.setData(dedup)
-    chart.timeScale().fitContent()
+
+    const first = dedup[0]!
+    const last = dedup[dedup.length - 1]!
+    const structure = `${range}:${dedup.length}:${first.time}:${last.time}`
+
+    // Full redraw only when shape/range changes; otherwise just nudge the tip.
+    if (structure !== lastStructure.current) {
+      lastStructure.current = structure
+      lastValue.current = last.value
+      series.setData(dedup)
+      chart.timeScale().fitContent()
+      return
+    }
+
+    if (lastValue.current !== last.value) {
+      lastValue.current = last.value
+      series.update(last)
+    }
   }, [filtered, range])
 
   return (
@@ -227,7 +238,10 @@ export function PnlChart({
       <div className="chart-wrap" ref={wrapRef}>
         {filtered.length < 2 ? <div className="empty">not enough history for this range</div> : null}
         {tip ? (
-          <div className="chart-tip up" style={{ left: tip.x, top: tip.y }}>
+          <div
+            className={`chart-tip ${tip.value < 0 ? 'down' : 'up'}`}
+            style={{ left: tip.x, top: tip.y }}
+          >
             <strong>{formatHoverBalance(tip.value)}</strong>
             <span>{tip.timeLabel}</span>
           </div>

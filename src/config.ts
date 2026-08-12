@@ -1,6 +1,12 @@
 function env(key: keyof ImportMetaEnv, fallback = ''): string {
   const value = import.meta.env[key]
-  return typeof value === 'string' && value.trim() ? value.trim() : fallback
+  if (typeof value !== 'string') return fallback
+  const trimmed = value.trim()
+  // Treat common placeholders as unset
+  if (!trimmed || trimmed === '...' || trimmed === 'coming soon' || trimmed === 'TBD') {
+    return fallback
+  }
+  return trimmed
 }
 
 function shortAddress(address: string, size = 4): string {
@@ -68,6 +74,22 @@ export function formatTokenPrice(n: number): string {
   if (n >= 0.01) return formatUsd(n, 4)
   if (n >= 0.0001) return formatUsd(n, 6)
   return `$${n.toExponential(2)}`
+}
+
+export function formatAmount(n: number): string {
+  if (!Number.isFinite(n)) return '—'
+  const abs = Math.abs(n)
+  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (abs >= 10_000) {
+    return n.toLocaleString(undefined, { maximumFractionDigits: 0 })
+  }
+  if (abs >= 100) {
+    return n.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  }
+  if (abs >= 1) {
+    return n.toLocaleString(undefined, { maximumFractionDigits: 4 })
+  }
+  return n.toLocaleString(undefined, { maximumSignificantDigits: 4 })
 }
 
 export function formatSol(n: number, digits = 4): string {

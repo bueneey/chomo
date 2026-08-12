@@ -5,7 +5,8 @@ import { Terminal } from './components/Terminal'
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchOnWindowFocus: true,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
     },
   },
 })

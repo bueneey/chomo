@@ -121,6 +121,8 @@ button {
   height: 52px;
   border-radius: 16px;
   border: 1px solid var(--line-strong);
+  object-fit: cover;
+  background: #1a2440;
 }
 
 .brand-copy h1 {
@@ -645,6 +647,21 @@ button {
   border: 1px solid var(--line);
   object-fit: cover;
   background: #1a2440;
+  flex-shrink: 0;
+}
+
+.token-logo.sm {
+  width: 20px;
+  height: 20px;
+  display: inline-block;
+  vertical-align: -4px;
+  margin-right: 0.4rem;
+}
+
+.token-logo.sm.fallback {
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.55rem;
 }
 
 .token-logo.fallback {
@@ -652,6 +669,13 @@ button {
   place-items: center;
   font-size: 0.7rem;
   color: var(--muted);
+  font-weight: 700;
+}
+
+.feed-title {
+  display: flex;
+  align-items: center;
+  gap: 0;
 }
 
 .pos-main strong {

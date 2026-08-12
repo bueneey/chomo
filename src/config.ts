@@ -36,7 +36,7 @@ export function displayWallet(address = config.walletAddress): string {
 }
 
 export function displayCa(): string {
-  return config.tokenCa ? shortAddress(config.tokenCa) : 'coming soon'
+  return config.tokenCa ? shortAddress(config.tokenCa) : '...'
 }
 
 export function displayX(): string {

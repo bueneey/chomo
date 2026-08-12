@@ -4,9 +4,7 @@ import { useChomoState } from '../api/hooks'
 import {
   config,
   displayCa,
-  displayFomo,
   displayWallet,
-  displayX,
   explorerWallet,
   formatAmount,
   formatPnl,
@@ -90,8 +88,10 @@ function Fold({
   return (
     <details className="fold" open={defaultOpen}>
       <summary>
-        <span>{title}</span>
-        {meta ? <em>{meta}</em> : null}
+        <span className="fold-title">{title}</span>
+        <span className="fold-right">
+          {meta ? <em className="fold-meta">{meta}</em> : null}
+        </span>
       </summary>
       <div className="fold-body">{children}</div>
     </details>
@@ -223,23 +223,22 @@ function HomePage() {
       </div>
 
       <Fold title="recent trades" meta={`${recent.length}`} defaultOpen>
-        <div className="fold-link">
+        <div className="fold-toolbar">
+          <span className="muted">{recent.length ? `${recent.length} latest` : 'no txs yet'}</span>
           <Link to="/feed">full feed →</Link>
         </div>
-        {!recent.length ? (
-          <p className="empty">no txs yet</p>
-        ) : (
+        {recent.length ? (
           <div className="scroll-pane">
             <TradeFeed items={recent} compact />
           </div>
-        )}
+        ) : null}
       </Fold>
 
       <Fold title="damage report" meta={wallet ? (vsBag >= 0 ? 'intact' : 'bleeding') : '—'}>
         <div className={`damage-big ${vsBag > 0 ? 'up' : vsBag < 0 ? 'down' : ''}`}>
           {wallet ? (vsBag >= 0 ? 'bag intact.' : 'bleeding.') : 'awaiting funds.'}
         </div>
-        <p className="about-text">
+        <p className="fold-text">
           starting <strong>${config.startingBankroll}</strong>
           {wallet ? (
             <>
@@ -250,7 +249,7 @@ function HomePage() {
       </Fold>
 
       <Fold title="about chomo" defaultOpen={false}>
-        <p className="about-text">
+        <p className="fold-text">
           <strong>chomo</strong> = chud + fomo. no strategy. no brain. ${config.startingBankroll} bag.
           forced to learn on fomo via openclaw — first real autonomous fomo bot. from chud the
           trader, improved, open source.
@@ -259,7 +258,12 @@ function HomePage() {
           <CopyBtn value={config.tokenCa} label="copy ca" />
           {hasLink(config.xUrl) ? (
             <a className="btn" href={config.xUrl} target="_blank" rel="noreferrer">
-              {displayX()}
+              x
+            </a>
+          ) : null}
+          {hasLink(config.fomoProfileUrl) ? (
+            <a className="btn" href={config.fomoProfileUrl} target="_blank" rel="noreferrer">
+              fomo
             </a>
           ) : null}
         </div>
@@ -395,13 +399,17 @@ export function Terminal() {
             </a>
             {hasLink(config.xUrl) ? (
               <a href={config.xUrl} target="_blank" rel="noreferrer">
-                {displayX()}
+                x
               </a>
             ) : (
-              <span>{displayX()}</span>
+              <span>x</span>
             )}
-            <a href={config.fomoAppUrl} target="_blank" rel="noreferrer">
-              fomo {displayFomo()}
+            <a
+              href={config.fomoProfileUrl || config.fomoAppUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              fomo
             </a>
           </div>
           <div className="footer-links">
@@ -412,7 +420,7 @@ export function Terminal() {
             ) : (
               <span>wallet: {displayWallet(wallet)}</span>
             )}
-            <CopyBtn value={config.tokenCa} label={`ca ${displayCa()}`} />
+            <CopyBtn value={config.tokenCa} label={`ca: ${displayCa()}`} />
             {sol ? (
               <span className="sol-ticker">
                 <img

@@ -62,6 +62,14 @@ export function formatUsd(n: number, digits = 2): string {
   })}`
 }
 
+export function formatTokenPrice(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—'
+  if (n >= 1) return formatUsd(n, 2)
+  if (n >= 0.01) return formatUsd(n, 4)
+  if (n >= 0.0001) return formatUsd(n, 6)
+  return `$${n.toExponential(2)}`
+}
+
 export function formatSol(n: number, digits = 4): string {
   return `${n.toLocaleString(undefined, {
     minimumFractionDigits: Math.min(2, digits),

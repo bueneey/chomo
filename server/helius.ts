@@ -20,10 +20,13 @@ let solPriceCache: { at: number; value: number } | null = null
 let stateCache: { at: number; value: Awaited<ReturnType<typeof buildChomoState>> } | null = null
 let stateInflight: Promise<Awaited<ReturnType<typeof buildChomoState>>> | null = null
 
-const STATE_TTL_MS = 3_000
-const SOL_PRICE_TTL_MS = 30_000
+const STATE_TTL_MS = 2_000
+const SOL_PRICE_TTL_MS = 20_000
 const META_TTL_MS = 5 * 60_000
-const metaCache = new Map<string, { at: number; symbol: string; name: string; logo?: string }>()
+const metaCache = new Map<
+  string,
+  { at: number; symbol: string; name: string; logo?: string; priceUsd?: number }
+>()
 
 function parseEnvFile(filePath: string): Record<string, string> {
   if (!existsSync(filePath)) return {}
@@ -132,85 +135,147 @@ type HeliusBalances = {
   nativeBalance?: number
 }
 
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
+
 async function fetchTokenPrices(mints: string[]): Promise<Record<string, number>> {
   if (!mints.length) return {}
   const out: Record<string, number> = {}
-  const chunk = mints.slice(0, 100)
-  try {
-    const res = await fetch(`https://api.jup.ag/price/v2?ids=${chunk.join(',')}`)
-    if (res.ok) {
-      const data = (await res.json()) as { data?: Record<string, { price?: string } | null> }
+  const unique = [...new Set(mints)]
+
+  // Jupiter Price API v3 (v2 is deprecated / empty)
+  for (const chunk of chunkArray(unique, 50)) {
+    try {
+      const res = await fetch(`https://lite-api.jup.ag/price/v3?ids=${chunk.join(',')}`, {
+        headers: { Accept: 'application/json' },
+      })
+      if (!res.ok) continue
+      const data = (await res.json()) as Record<string, { usdPrice?: number } | null>
       for (const mint of chunk) {
-        const price = Number(data.data?.[mint]?.price)
-        if (Number.isFinite(price)) out[mint] = price
+        const price = Number(data[mint]?.usdPrice)
+        if (Number.isFinite(price) && price > 0) out[mint] = price
       }
+    } catch {
+      /* try next source */
     }
-  } catch {
-    /* ignore */
   }
+
+  const missing = unique.filter((m) => out[m] == null)
+  // DexScreener covers most pump / meme mints Jupiter omits
+  for (const chunk of chunkArray(missing, 30)) {
+    try {
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${chunk.join(',')}`, {
+        headers: { Accept: 'application/json' },
+      })
+      if (!res.ok) continue
+      const data = (await res.json()) as {
+        pairs?: Array<{
+          baseToken?: { address?: string }
+          priceUsd?: string
+          liquidity?: { usd?: number }
+        }>
+      }
+      const best = new Map<string, { price: number; liq: number }>()
+      for (const pair of data.pairs ?? []) {
+        const mint = pair.baseToken?.address
+        const price = Number(pair.priceUsd)
+        const liq = Number(pair.liquidity?.usd ?? 0)
+        if (!mint || !Number.isFinite(price) || price <= 0) continue
+        const prev = best.get(mint)
+        if (!prev || liq > prev.liq) best.set(mint, { price, liq })
+      }
+      for (const [mint, row] of best) out[mint] = row.price
+    } catch {
+      /* ignore */
+    }
+  }
+
   return out
 }
 
 async function fetchAssetMeta(
   key: string,
   mints: string[],
-): Promise<Record<string, { symbol: string; name: string; logo?: string }>> {
-  if (!mints.length) return {}
-  const out: Record<string, { symbol: string; name: string; logo?: string }> = {}
+): Promise<{
+  meta: Record<string, { symbol: string; name: string; logo?: string }>
+  prices: Record<string, number>
+}> {
+  if (!mints.length) return { meta: {}, prices: {} }
+  const meta: Record<string, { symbol: string; name: string; logo?: string }> = {}
+  const prices: Record<string, number> = {}
   const missing: string[] = []
   const now = Date.now()
 
   for (const mint of mints) {
     const cached = metaCache.get(mint)
     if (cached && now - cached.at < META_TTL_MS) {
-      out[mint] = { symbol: cached.symbol, name: cached.name, logo: cached.logo }
+      meta[mint] = { symbol: cached.symbol, name: cached.name, logo: cached.logo }
+      if (cached.priceUsd != null && cached.priceUsd > 0) prices[mint] = cached.priceUsd
     } else {
       missing.push(mint)
     }
   }
 
-  if (!missing.length) return out
+  if (!missing.length) return { meta, prices }
 
   try {
-    const res = await fetch(HELIUS_RPC(key), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'getAssetBatch',
-        params: { ids: missing.slice(0, 40) },
-      }),
-    })
-    if (!res.ok) return out
-    const json = (await res.json()) as {
-      result?: Array<{
-        id?: string
-        content?: {
-          metadata?: { symbol?: string; name?: string }
-          links?: { image?: string }
-          files?: Array<{ uri?: string; cdn_uri?: string }>
+    for (const chunk of chunkArray(missing, 40)) {
+      const res = await fetch(HELIUS_RPC(key), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getAssetBatch',
+          params: {
+            ids: chunk,
+            displayOptions: { showFungible: true },
+          },
+        }),
+      })
+      if (!res.ok) continue
+      const json = (await res.json()) as {
+        result?: Array<{
+          id?: string
+          content?: {
+            metadata?: { symbol?: string; name?: string }
+            links?: { image?: string }
+            files?: Array<{ uri?: string; cdn_uri?: string }>
+          }
+          token_info?: {
+            symbol?: string
+            price_info?: { price_per_token?: number; currency?: string }
+          }
+        } | null>
+      }
+      for (const asset of json.result ?? []) {
+        if (!asset?.id) continue
+        const symbol =
+          asset.content?.metadata?.symbol || asset.token_info?.symbol || asset.id.slice(0, 4)
+        const name = asset.content?.metadata?.name || symbol
+        const logo =
+          asset.content?.links?.image ||
+          asset.content?.files?.[0]?.cdn_uri ||
+          asset.content?.files?.[0]?.uri
+        const priceUsd = Number(asset.token_info?.price_info?.price_per_token)
+        const row = {
+          symbol,
+          name,
+          logo,
+          priceUsd: Number.isFinite(priceUsd) && priceUsd > 0 ? priceUsd : undefined,
         }
-        token_info?: { symbol?: string }
-      } | null>
-    }
-    for (const asset of json.result ?? []) {
-      if (!asset?.id) continue
-      const symbol =
-        asset.content?.metadata?.symbol || asset.token_info?.symbol || asset.id.slice(0, 4)
-      const name = asset.content?.metadata?.name || symbol
-      const logo =
-        asset.content?.links?.image ||
-        asset.content?.files?.[0]?.cdn_uri ||
-        asset.content?.files?.[0]?.uri
-      const row = { symbol, name, logo }
-      out[asset.id] = row
-      metaCache.set(asset.id, { at: now, ...row })
+        meta[asset.id] = { symbol: row.symbol, name: row.name, logo: row.logo }
+        if (row.priceUsd != null) prices[asset.id] = row.priceUsd
+        metaCache.set(asset.id, { at: now, ...row })
+      }
     }
   } catch {
     /* ignore */
   }
-  return out
+  return { meta, prices }
 }
 
 async function fetchBalances(key: string, wallet: string): Promise<{
@@ -306,18 +371,17 @@ export async function getLiveWallet(): Promise<LiveWallet | null> {
   const balanceSol = balances.lamports / 1e9
   const balanceUsd = balanceSol * solPriceUsd
 
-  const mints = balances.tokens
-    .slice()
-    .sort((a, b) => b.amount / 10 ** b.decimals - a.amount / 10 ** a.decimals)
-    .slice(0, 20)
-    .map((t) => t.mint)
-  const pricedTokens = balances.tokens.filter((t) => mints.includes(t.mint))
-  const [prices, meta] = await Promise.all([
+  // Drop dust amounts, keep everything else so pump bags get priced.
+  const heldTokens = balances.tokens.filter((t) => t.amount / 10 ** t.decimals > 1e-6)
+  const mints = heldTokens.map((t) => t.mint)
+  const [marketPrices, assetInfo] = await Promise.all([
     fetchTokenPrices(mints),
     fetchAssetMeta(heliusKey, mints),
   ])
+  const prices = { ...assetInfo.prices, ...marketPrices }
+  const meta = assetInfo.meta
 
-  const positions: Position[] = pricedTokens
+  const positions: Position[] = heldTokens
     .map((t) => {
       const amount = t.amount / 10 ** t.decimals
       const priceUsd = prices[t.mint] ?? 0
@@ -334,8 +398,8 @@ export async function getLiveWallet(): Promise<LiveWallet | null> {
       }
     })
     .filter((p) => p.amount > 0)
-    .sort((a, b) => b.usdValue - a.usdValue)
-    .slice(0, 12)
+    .sort((a, b) => b.usdValue - a.usdValue || b.amount - a.amount)
+    .slice(0, 24)
 
   const tokenValueUsd = positions.reduce((sum, p) => sum + p.usdValue, 0)
   const equityUsd = balanceUsd + tokenValueUsd
@@ -582,30 +646,51 @@ export async function getChart(): Promise<ChartResponse> {
   return state.chart
 }
 
-const CHOMO_SERVER_LOGS = [
-  'staring at the feed. something smells like cabal.',
-  'no thesis. just vibes. dangerous combo.',
-  'checking the bag again. still counting.',
-  'refusing to ape… for now.',
-  'if i lose the hundred i become lore.',
-  'mute the noise. unmute the noise. repeat.',
-  'green candle. probably a trap. still looking.',
-  'fomo feed scroll speed: unhinged.',
-  'one job: don’t lose it. brain: unavailable.',
-  'copying nobody. stalking everybody.',
-  'journal entry: felt something. unclear what.',
-  'openclaw hands are twitching.',
-]
+function journalLine(item: FeedItem): string {
+  const sol =
+    item.solDelta != null ? ` · ${item.solDelta > 0 ? '+' : ''}${item.solDelta.toFixed(4)} SOL` : ''
+  if (item.action === 'swap_buy') {
+    return `bought ${item.tokenSymbol || 'something'}${sol}. bag updated. no thesis yet.`
+  }
+  if (item.action === 'swap_sell') {
+    return `sold ${item.tokenSymbol || 'something'}${sol}. counting what’s left.`
+  }
+  if (item.action === 'receive') return `wallet received SOL${sol}. noted.`
+  if (item.action === 'send') return `sent SOL${sol}. hope that was intentional.`
+  if (item.action === 'transfer_in') {
+    return `tokens in: ${item.tokenSymbol || 'unknown'}${item.subline ? ` · ${item.subline}` : ''}.`
+  }
+  if (item.action === 'transfer_out') {
+    return `tokens out: ${item.tokenSymbol || 'unknown'}${item.subline ? ` · ${item.subline}` : ''}.`
+  }
+  return `${item.headline}${sol}`
+}
 
-function randomThoughts(count = 3): AgentEvent[] {
-  const shuffled = [...CHOMO_SERVER_LOGS].sort(() => Math.random() - 0.5)
-  const now = Date.now()
-  return shuffled.slice(0, count).map((text, i) => ({
-    id: `thought-${now}-${i}`,
-    at: new Date(now - (i + 1) * 55_000).toISOString(),
-    kind: 'thought' as const,
-    text,
+function liveEventsFromFeed(feedItems: FeedItem[], walletLive: LiveWallet | null): AgentEvent[] {
+  const tradeEvents: AgentEvent[] = feedItems.slice(0, 40).map((item) => ({
+    id: `tx-${item.id}`,
+    at: new Date(item.timestamp).toISOString(),
+    kind: item.action.startsWith('swap') ? ('trade' as const) : ('did' as const),
+    text: `${item.headline}${item.solDelta != null ? ` · ${item.solDelta.toFixed(4)} SOL` : ''}`,
   }))
+
+  const journalEvents: AgentEvent[] = feedItems.slice(0, 20).map((item) => ({
+    id: `journal-${item.id}`,
+    at: new Date(item.timestamp + 1).toISOString(),
+    kind: 'journal' as const,
+    text: journalLine(item),
+  }))
+
+  const events = [...tradeEvents, ...journalEvents]
+  if (walletLive) {
+    events.unshift({
+      id: `pnl-${walletLive.updatedAt}`,
+      at: walletLive.updatedAt,
+      kind: 'thought',
+      text: `live bag ${walletLive.equityUsd.toFixed(2)} usd · ${walletLive.balanceSol.toFixed(3)} sol cash · pnl ${walletLive.totalPnlUsd >= 0 ? '+' : ''}${walletLive.totalPnlUsd.toFixed(2)}`,
+    })
+  }
+  return events.sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
 }
 
 async function buildChomoState() {
@@ -676,6 +761,21 @@ async function buildChomoState() {
   ])
 
   const feedItems = txs.map((tx) => classifyTx(tx, wallet))
+  // Prefer real token symbols on feed / journal lines when we already fetched meta.
+  const symbolByMint = new Map(
+    (walletLive?.positions ?? []).map((p) => [p.mint, p.symbol] as const),
+  )
+  for (const item of feedItems) {
+    if (item.tokenMint && symbolByMint.has(item.tokenMint)) {
+      const symbol = symbolByMint.get(item.tokenMint)!
+      item.tokenSymbol = symbol
+      if (item.action === 'swap_buy') item.headline = `bought ${symbol}`
+      if (item.action === 'swap_sell') item.headline = `sold ${symbol}`
+      if (item.action === 'transfer_in') item.headline = `received ${symbol}`
+      if (item.action === 'transfer_out') item.headline = `sent ${symbol}`
+    }
+  }
+
   const chart = buildChartFromTxs(
     wallet,
     txs,
@@ -684,23 +784,13 @@ async function buildChomoState() {
     walletLive,
   )
 
-  const tradeEvents: AgentEvent[] = feedItems.slice(0, 10).map((item, i) => ({
-    id: `${item.id}-${i}`,
-    at: new Date(item.timestamp).toISOString(),
-    kind: item.action.startsWith('swap') ? 'trade' : 'did',
-    text: item.headline + (item.solDelta != null ? ` · ${item.solDelta.toFixed(4)} SOL` : ''),
-  }))
-
-  const events: AgentEvent[] = [...tradeEvents, ...randomThoughts(4)].sort(
-    (a, b) => Date.parse(b.at) - Date.parse(a.at),
-  )
-
+  const events = liveEventsFromFeed(feedItems, walletLive)
   if (!events.length) {
     events.push({
       id: 'idle',
       at: new Date().toISOString(),
       kind: 'thought',
-      text: 'wallet funded. staring at the feed. waiting for a thesis to feel real.',
+      text: 'watching the wallet. no moves yet. staring at the feed.',
     })
   }
 

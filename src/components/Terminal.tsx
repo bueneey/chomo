@@ -10,11 +10,11 @@ import {
   explorerWallet,
   formatPnl,
   formatSol,
+  formatTokenPrice,
   formatUsd,
   hasLink,
   timeAgo,
 } from '../config'
-import { CHOMO_LOGS } from '../logs'
 import type { AgentEvent, Position } from '../types'
 import { PnlChart, type ChartRange } from './PnlChart'
 import { TradeFeed } from './TradeFeed'
@@ -107,22 +107,21 @@ function HomePage() {
       (e: AgentEvent) =>
         e.kind === 'thought' || e.kind === 'journal' || e.kind === 'trade' || e.kind === 'did',
     )
-    .slice(0, 12)
-  const [nowLine, setNowLine] = useState(
-    () => thoughts[0]?.text ?? CHOMO_LOGS[Math.floor(Math.random() * CHOMO_LOGS.length)]!,
-  )
-
-  const topThought = thoughts[0]?.text
-  useEffect(() => {
-    if (topThought) setNowLine(topThought)
-  }, [topThought])
+    .slice(0, 16)
+  const [nowIndex, setNowIndex] = useState(0)
+  const nowLine = thoughts[nowIndex % Math.max(thoughts.length, 1)]?.text ?? 'waiting on chain…'
 
   useEffect(() => {
+    setNowIndex(0)
+  }, [data?.updatedAt])
+
+  useEffect(() => {
+    if (thoughts.length < 2) return
     const id = window.setInterval(() => {
-      setNowLine(CHOMO_LOGS[Math.floor(Math.random() * CHOMO_LOGS.length)]!)
-    }, 12_000)
+      setNowIndex((i) => i + 1)
+    }, 8_000)
     return () => window.clearInterval(id)
-  }, [])
+  }, [thoughts.length])
 
   return (
     <>
@@ -209,11 +208,11 @@ function HomePage() {
                   <div className="pos-main">
                     <strong>{p.symbol}</strong>
                     <span>
-                      {p.amount.toPrecision(4)} · {formatUsd(p.priceUsd, 6)}
+                      {p.amount.toPrecision(4)} · {formatTokenPrice(p.priceUsd)}
                     </span>
                   </div>
                   <div className="pos-val">
-                    <strong>{formatUsd(p.usdValue)}</strong>
+                    <strong>{p.usdValue > 0 ? formatUsd(p.usdValue) : '—'}</strong>
                     <a
                       href={`https://dexscreener.com/solana/${p.mint}`}
                       target="_blank"
